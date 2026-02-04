@@ -3,11 +3,16 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
 import calendarRoutes from './routes/calendar.js';
 import driveRoutes from './routes/drive.js';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -34,7 +39,8 @@ app.use(session({
 
 // Serve static files in produzione (build del frontend)
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('../client/dist'));
+  const clientDistPath = path.join(__dirname, '../../client/dist');
+  app.use(express.static(clientDistPath));
 }
 
 // Health check
@@ -56,10 +62,18 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
+// SPA fallback - serve index.html for all non-API routes in production
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    const clientDistPath = path.join(__dirname, '../../client/dist');
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+} else {
+  // 404 handler for development
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+  });
+}
 
 // Start server
 app.listen(PORT, () => {
