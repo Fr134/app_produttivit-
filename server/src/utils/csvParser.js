@@ -136,10 +136,10 @@ export function parseSchedeCSV(csvString) {
 
   return records.map(record => ({
     ...record,
-    giorni: record.giorni
+    giorni: record.giorni && typeof record.giorni === 'string'
       ? record.giorni.split(',').map(d => parseInt(d.trim()))
       : [],
-    esercizi: record.esercizi ? JSON.parse(record.esercizi) : []
+    esercizi: record.esercizi && typeof record.esercizi === 'string' ? JSON.parse(record.esercizi) : []
   }));
 }
 
