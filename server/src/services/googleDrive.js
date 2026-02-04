@@ -6,7 +6,9 @@ import {
   parseProgettiCSV,
   progettiToCSV,
   parseRoutineCSV,
-  routineToCSV
+  routineToCSV,
+  parseSchedeCSV,
+  schedeToCSV
 } from '../utils/csvParser.js';
 
 const FOLDER_NAME = 'Planner';
@@ -16,7 +18,9 @@ const CSV_FILES = {
   progetti: 'planner-progetti.csv',
   task: 'planner-task.csv',
   routine: 'planner-routine.csv',
-  progresso: 'planner-progresso.csv'
+  progresso: 'planner-progresso.csv',
+  schede: 'planner-schede.csv',
+  allenamenti: 'planner-allenamenti-log.csv'
 };
 
 // Template CSV per file vuoti
@@ -24,7 +28,9 @@ const CSV_TEMPLATES = {
   progetti: 'id,title,description,startDate,endDate,timeAllocation,completedSessions,completed\n',
   task: 'date,taskId,text,completed\n',
   routine: 'id,name,icon,days\n',
-  progresso: 'date,type,projectId,value\n'
+  progresso: 'date,type,projectId,value\n',
+  schede: 'id,nome,tipo,descrizione,esercizi\n',
+  allenamenti: 'date,schedaId,esercizioNome,pesoEseguito,ripetizioniEseguite\n'
 };
 
 /**
@@ -199,7 +205,7 @@ async function getOrCreateCSVFile(fileName, folderId, template) {
 
 /**
  * Carica tutti i dati dai CSV
- * @returns {Object} { progetti, task, routine, progresso }
+ * @returns {Object} { progetti, task, routine, progresso, schede, allenamenti }
  */
 export async function loadAllData() {
   try {
@@ -208,11 +214,13 @@ export async function loadAllData() {
     const folderId = await getOrCreatePlannerFolder();
 
     // Carica tutti i file in parallelo
-    const [progetti, task, routine, progresso] = await Promise.all([
+    const [progetti, task, routine, progresso, schede, allenamenti] = await Promise.all([
       getOrCreateCSVFile(CSV_FILES.progetti, folderId, CSV_TEMPLATES.progetti),
       getOrCreateCSVFile(CSV_FILES.task, folderId, CSV_TEMPLATES.task),
       getOrCreateCSVFile(CSV_FILES.routine, folderId, CSV_TEMPLATES.routine),
-      getOrCreateCSVFile(CSV_FILES.progresso, folderId, CSV_TEMPLATES.progresso)
+      getOrCreateCSVFile(CSV_FILES.progresso, folderId, CSV_TEMPLATES.progresso),
+      getOrCreateCSVFile(CSV_FILES.schede, folderId, CSV_TEMPLATES.schede),
+      getOrCreateCSVFile(CSV_FILES.allenamenti, folderId, CSV_TEMPLATES.allenamenti)
     ]);
 
     // Parse dei CSV
@@ -232,6 +240,14 @@ export async function loadAllData() {
       progresso: {
         fileId: progresso.fileId,
         data: parseCSV(progresso.content)
+      },
+      schede: {
+        fileId: schede.fileId,
+        data: parseSchedeCSV(schede.content)
+      },
+      allenamenti: {
+        fileId: allenamenti.fileId,
+        data: parseCSV(allenamenti.content)
       }
     };
 
@@ -245,7 +261,7 @@ export async function loadAllData() {
 
 /**
  * Salva i dati su Google Drive
- * @param {Object} data - { progetti, task, routine, progresso }
+ * @param {Object} data - { progetti, task, routine, progresso, schede, allenamenti }
  */
 export async function saveAllData(data) {
   try {
@@ -258,7 +274,9 @@ export async function saveAllData(data) {
       progetti: await findCSVFile(CSV_FILES.progetti, folderId),
       task: await findCSVFile(CSV_FILES.task, folderId),
       routine: await findCSVFile(CSV_FILES.routine, folderId),
-      progresso: await findCSVFile(CSV_FILES.progresso, folderId)
+      progresso: await findCSVFile(CSV_FILES.progresso, folderId),
+      schede: await findCSVFile(CSV_FILES.schede, folderId),
+      allenamenti: await findCSVFile(CSV_FILES.allenamenti, folderId)
     };
 
     // Se qualche file non esiste, crealo
@@ -297,6 +315,24 @@ export async function saveAllData(data) {
         updates.push(updateCSVFile(fileIds.progresso, csv));
       } else {
         updates.push(createCSVFile(CSV_FILES.progresso, csv, folderId));
+      }
+    }
+
+    if (data.schede) {
+      const csv = schedeToCSV(data.schede);
+      if (fileIds.schede) {
+        updates.push(updateCSVFile(fileIds.schede, csv));
+      } else {
+        updates.push(createCSVFile(CSV_FILES.schede, csv, folderId));
+      }
+    }
+
+    if (data.allenamenti) {
+      const csv = toCSV(data.allenamenti, ['date', 'schedaId', 'esercizioNome', 'pesoEseguito', 'ripetizioniEseguite']);
+      if (fileIds.allenamenti) {
+        updates.push(updateCSVFile(fileIds.allenamenti, csv));
+      } else {
+        updates.push(createCSVFile(CSV_FILES.allenamenti, csv, folderId));
       }
     }
 

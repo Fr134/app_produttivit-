@@ -125,3 +125,28 @@ export function routineToCSV(routines) {
 
   return toCSV(records, ['id', 'name', 'icon', 'days']);
 }
+
+/**
+ * Parse schede CSV with esercizi JSON
+ * Formato esercizi: JSON stringified array di oggetti
+ */
+export function parseSchedeCSV(csvString) {
+  const records = parseCSV(csvString);
+
+  return records.map(record => ({
+    ...record,
+    esercizi: record.esercizi ? JSON.parse(record.esercizi) : []
+  }));
+}
+
+/**
+ * Convert schede to CSV with esercizi JSON
+ */
+export function schedeToCSV(schede) {
+  const records = schede.map(scheda => ({
+    ...scheda,
+    esercizi: JSON.stringify(scheda.esercizi || [])
+  }));
+
+  return toCSV(records, ['id', 'nome', 'tipo', 'descrizione', 'esercizi']);
+}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, CheckSquare, Target, Book, Dumbbell, Plus, ChevronLeft, ChevronRight, Check, X, LogOut, RefreshCw } from 'lucide-react';
+import { Calendar, CheckSquare, Target, Book, Dumbbell, Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, LogOut, RefreshCw, Edit2 } from 'lucide-react';
 import * as api from './services/api';
 
 export default function App() {
@@ -20,6 +20,10 @@ export default function App() {
     sportCompleted: {},
     customRoutines: []
   });
+  const [workoutSheets, setWorkoutSheets] = useState([]);
+  const [workoutLogs, setWorkoutLogs] = useState({});
+  const [selectedWorkoutForDay, setSelectedWorkoutForDay] = useState({});
+  const [workoutViewExpanded, setWorkoutViewExpanded] = useState({});
 
   // UI state
   const [newTask, setNewTask] = useState('');
@@ -34,6 +38,9 @@ export default function App() {
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddRoutine, setShowAddRoutine] = useState(false);
   const [newRoutine, setNewRoutine] = useState({ name: '', days: [], icon: '🏃' });
+  const [showAddWorkoutSheet, setShowAddWorkoutSheet] = useState(false);
+  const [newWorkoutSheet, setNewWorkoutSheet] = useState({ nome: '', tipo: 'Palestra', descrizione: '', esercizi: [] });
+  const [editingExercise, setEditingExercise] = useState({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
@@ -71,7 +78,7 @@ export default function App() {
     }, 2 * 60 * 1000); // 2 minuti
 
     return () => clearInterval(interval);
-  }, [authenticated, projects, dailyTasks, habits]);
+  }, [authenticated, projects, dailyTasks, habits, workoutSheets, workoutLogs]);
 
   // Reload calendar events when date changes
   useEffect(() => {
@@ -152,6 +159,23 @@ export default function App() {
         }));
       }
 
+      // Load workout sheets
+      if (data.schede && data.schede.length > 0) {
+        setWorkoutSheets(data.schede);
+      }
+
+      // Load workout logs
+      if (data.allenamenti && data.allenamenti.length > 0) {
+        const logsMap = {};
+        data.allenamenti.forEach(log => {
+          if (!logsMap[log.date]) {
+            logsMap[log.date] = [];
+          }
+          logsMap[log.date].push(log);
+        });
+        setWorkoutLogs(logsMap);
+      }
+
       setLastSync(new Date());
       console.log('✅ Dati caricati con successo');
     } catch (error) {
@@ -201,11 +225,29 @@ export default function App() {
         });
       });
 
+      // Prepare allenamenti for save
+      const allenamentiArray = [];
+      Object.entries(workoutLogs).forEach(([date, dayLogs]) => {
+        dayLogs.forEach(log => {
+          if (log.pesoEseguito > 0 || log.ripetizioniEseguite > 0) {
+            allenamentiArray.push({
+              date,
+              schedaId: log.schedaId,
+              esercizioNome: log.esercizioNome,
+              pesoEseguito: log.pesoEseguito || 0,
+              ripetizioniEseguite: log.ripetizioniEseguite || 0
+            });
+          }
+        });
+      });
+
       await api.saveAllData({
         progetti: projects,
         task: taskArray,
         routine: habits.customRoutines,
-        progresso: progressoArray
+        progresso: progressoArray,
+        schede: workoutSheets,
+        allenamenti: allenamentiArray
       });
 
       setLastSync(new Date());
@@ -446,6 +488,185 @@ export default function App() {
       return project;
     }));
   };
+
+  // Workout sheets functions
+  const getWorkoutSheetsForType = (tipo) => {
+    return workoutSheets.filter(sheet => sheet.tipo === tipo);
+  };
+
+  const getActiveWorkoutSheet = (date) => {
+    const sportType = getSportForDay(date);
+    if (!sportType) return null;
+
+    const sheets = getWorkoutSheetsForType(sportType);
+    if (sheets.length === 1) return sheets[0];
+    if (sheets.length > 1) {
+      const dateKey = date.toISOString().split('T')[0];
+      const selectedId = selectedWorkoutForDay[dateKey];
+      return sheets.find(s => s.id === selectedId) || null;
+    }
+    return null;
+  };
+
+  const assignWorkoutToDay = (date, schedaId) => {
+    const dateKey = date.toISOString().split('T')[0];
+    setSelectedWorkoutForDay(prev => ({
+      ...prev,
+      [dateKey]: parseInt(schedaId)
+    }));
+  };
+
+  const toggleWorkoutView = (dateKey) => {
+    setWorkoutViewExpanded(prev => ({
+      ...prev,
+      [dateKey]: !prev[dateKey]
+    }));
+  };
+
+  const handleLogExercise = (date, schedaId, esercizioNome, campo, valore) => {
+    const dateKey = date.toISOString().split('T')[0];
+
+    setWorkoutLogs(prev => {
+      const currentLogs = prev[dateKey] || [];
+      const existingLogIndex = currentLogs.findIndex(l =>
+        l.schedaId === schedaId && l.esercizioNome === esercizioNome
+      );
+
+      if (existingLogIndex >= 0) {
+        const newLogs = [...currentLogs];
+        newLogs[existingLogIndex] = {
+          ...newLogs[existingLogIndex],
+          [campo]: parseFloat(valore) || 0
+        };
+        return { ...prev, [dateKey]: newLogs };
+      } else {
+        return {
+          ...prev,
+          [dateKey]: [
+            ...currentLogs,
+            {
+              date: dateKey,
+              schedaId,
+              esercizioNome,
+              pesoEseguito: campo === 'pesoEseguito' ? parseFloat(valore) || 0 : 0,
+              ripetizioniEseguite: campo === 'ripetizioniEseguite' ? parseFloat(valore) || 0 : 0
+            }
+          ]
+        };
+      }
+    });
+  };
+
+  const addExerciseToSheet = () => {
+    if (!editingExercise.nome.trim()) return;
+    setNewWorkoutSheet(prev => ({
+      ...prev,
+      esercizi: [...prev.esercizi, { ...editingExercise }]
+    }));
+    setEditingExercise({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
+  };
+
+  const removeExerciseFromSheet = (index) => {
+    setNewWorkoutSheet(prev => ({
+      ...prev,
+      esercizi: prev.esercizi.filter((_, i) => i !== index)
+    }));
+  };
+
+  const addWorkoutSheet = () => {
+    if (!newWorkoutSheet.nome.trim() || newWorkoutSheet.esercizi.length === 0) return;
+    setWorkoutSheets(prev => [...prev, { ...newWorkoutSheet, id: Date.now() }]);
+    setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', esercizi: [] });
+    setShowAddWorkoutSheet(false);
+  };
+
+  // Workout Sheet View Component
+  function WorkoutSheetView({ sheet, logs, date, onLogExercise }) {
+    const [localLogs, setLocalLogs] = useState({});
+
+    useEffect(() => {
+      const logsMap = {};
+      logs.forEach(log => {
+        logsMap[log.esercizioNome] = {
+          pesoEseguito: log.pesoEseguito,
+          ripetizioniEseguite: log.ripetizioniEseguite
+        };
+      });
+      setLocalLogs(logsMap);
+    }, [logs]);
+
+    const handleInputChange = (esercizioNome, campo, valore) => {
+      setLocalLogs(prev => ({
+        ...prev,
+        [esercizioNome]: {
+          ...(prev[esercizioNome] || {}),
+          [campo]: valore
+        }
+      }));
+      onLogExercise(date, sheet.id, esercizioNome, campo, valore);
+    };
+
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center justify-between mb-3 px-2">
+          <div>
+            <h4 className="font-bold text-sm text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>{sheet.nome}</h4>
+            {sheet.descrizione && (
+              <p className="text-xs text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>{sheet.descrizione}</p>
+            )}
+          </div>
+        </div>
+
+        {sheet.esercizi.map((ex, i) => {
+          const log = localLogs[ex.nome] || {};
+
+          return (
+            <div key={i} className="bg-slate-50 rounded-lg p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate text-slate-800" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>{ex.nome}</div>
+                  <div className="text-xs text-slate-600 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                    Target: {ex.ripetizioni} reps - {ex.recupero} recupero
+                  </div>
+                  {ex.pesoTarget > 0 && (
+                    <div className="text-xs text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Peso suggerito: {ex.pesoTarget}kg
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2 items-center">
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="number"
+                      placeholder="Peso"
+                      value={log.pesoEseguito || ''}
+                      onChange={(e) => handleInputChange(ex.nome, 'pesoEseguito', e.target.value)}
+                      className="w-16 px-2 py-1 text-xs rounded border border-slate-300 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    />
+                    <span className="text-xs text-slate-400 text-center" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>kg</span>
+                  </div>
+                  <span className="text-slate-400">×</span>
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="number"
+                      placeholder="Reps"
+                      value={log.ripetizioniEseguite || ''}
+                      onChange={(e) => handleInputChange(ex.nome, 'ripetizioniEseguite', e.target.value)}
+                      className="w-16 px-2 py-1 text-xs rounded border border-slate-300 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    />
+                    <span className="text-xs text-slate-400 text-center" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>reps</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   // Login screen
   if (checkingAuth) {
@@ -773,23 +994,65 @@ export default function App() {
                 </div>
 
                 {sportForDate && (
-                  <div
-                    onClick={() => toggleSportCompleted(selectedDate)}
-                    className="flex items-center gap-3 p-4 bg-white rounded-xl cursor-pointer hover:bg-green-50 transition-all mb-3"
-                  >
-                    <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center ${
-                      sportCompleted ? 'bg-green-600 border-green-600' : 'border-slate-300'
-                    }`}>
-                      {sportCompleted && <Check className="w-4 h-4 text-white" />}
-                    </div>
-                    <div>
-                      <div className="font-medium text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                        {sportForDate}
+                  <div className="bg-white rounded-xl mb-3">
+                    <div
+                      onClick={() => toggleSportCompleted(selectedDate)}
+                      className="flex items-center gap-3 p-4 cursor-pointer hover:bg-green-50 transition-all"
+                    >
+                      <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center ${
+                        sportCompleted ? 'bg-green-600 border-green-600' : 'border-slate-300'
+                      }`}>
+                        {sportCompleted && <Check className="w-4 h-4 text-white" />}
                       </div>
-                      <div className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                        {sportCompleted ? 'Completato! 💪' : 'Da fare'}
+                      <div>
+                        <div className="font-medium text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {sportForDate}
+                        </div>
+                        <div className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {sportCompleted ? 'Completato! 💪' : 'Da fare'}
+                        </div>
                       </div>
                     </div>
+
+                    {sportCompleted && (
+                      <div className="px-4 pb-4 border-t border-slate-100">
+                        {getWorkoutSheetsForType(sportForDate).length > 1 && (
+                          <select
+                            value={selectedWorkoutForDay[dateKey] || ''}
+                            onChange={(e) => assignWorkoutToDay(selectedDate, e.target.value)}
+                            className="w-full mt-3 mb-2 px-3 py-2 border border-slate-300 rounded-xl text-sm"
+                            style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                          >
+                            <option value="">Seleziona scheda...</option>
+                            {getWorkoutSheetsForType(sportForDate).map(sheet => (
+                              <option key={sheet.id} value={sheet.id}>{sheet.nome}</option>
+                            ))}
+                          </select>
+                        )}
+
+                        {getActiveWorkoutSheet(selectedDate) && (
+                          <>
+                            <button
+                              onClick={() => toggleWorkoutView(dateKey)}
+                              className="text-sm text-green-700 flex items-center gap-2 w-full justify-center py-2 hover:bg-green-50 rounded-lg transition-all mt-2"
+                              style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                            >
+                              {workoutViewExpanded[dateKey] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              {workoutViewExpanded[dateKey] ? 'Nascondi' : 'Vedi'} Scheda di Allenamento
+                            </button>
+
+                            {workoutViewExpanded[dateKey] && (
+                              <WorkoutSheetView
+                                sheet={getActiveWorkoutSheet(selectedDate)}
+                                logs={workoutLogs[dateKey] || []}
+                                date={selectedDate}
+                                onLogExercise={handleLogExercise}
+                              />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1086,6 +1349,205 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* Sezione Schede di Allenamento */}
+            <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Schede di Allenamento
+                </h3>
+                <button
+                  onClick={() => setShowAddWorkoutSheet(true)}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all flex items-center gap-2"
+                  style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                >
+                  <Plus className="w-5 h-5" />
+                  Nuova Scheda
+                </button>
+              </div>
+
+              {workoutSheets.length === 0 ? (
+                <p className="text-slate-400 text-center py-4" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                  Nessuna scheda di allenamento. Creane una!
+                </p>
+              ) : (
+                <div className="grid gap-3">
+                  {workoutSheets.map(sheet => (
+                    <div key={sheet.id} className="p-4 bg-slate-50 rounded-xl">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-800 text-lg" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {sheet.nome}
+                            </span>
+                            <span className={`px-2 py-1 text-xs rounded-lg font-medium ${
+                              sheet.tipo === 'Palestra' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                            }`} style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {sheet.tipo}
+                            </span>
+                          </div>
+                          {sheet.descrizione && (
+                            <div className="text-sm text-slate-600 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {sheet.descrizione}
+                            </div>
+                          )}
+                          <div className="text-xs text-slate-500 mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                            {sheet.esercizi.length} esercizi
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setWorkoutSheets(prev => prev.filter(s => s.id !== sheet.id));
+                          }}
+                          className="text-red-500 hover:text-red-700 p-2"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {sheet.esercizi.map((ex, i) => (
+                          <div key={i} className="text-xs text-slate-600 pl-2 border-l-2 border-slate-300" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                            {ex.nome} - {ex.ripetizioni} reps, {ex.recupero} recupero
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Form Aggiungi Scheda */}
+            {showAddWorkoutSheet && (
+              <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Crea Nuova Scheda di Allenamento
+                </h3>
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Nome scheda (es. Push Day, Full Body...)"
+                    value={newWorkoutSheet.nome}
+                    onChange={(e) => setNewWorkoutSheet({ ...newWorkoutSheet, nome: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                  />
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Tipo di Allenamento
+                    </label>
+                    <select
+                      value={newWorkoutSheet.tipo}
+                      onChange={(e) => setNewWorkoutSheet({ ...newWorkoutSheet, tipo: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      <option value="Palestra">Palestra</option>
+                      <option value="Corsa">Corsa</option>
+                    </select>
+                  </div>
+
+                  <textarea
+                    placeholder="Descrizione (opzionale)"
+                    value={newWorkoutSheet.descrizione}
+                    onChange={(e) => setNewWorkoutSheet({ ...newWorkoutSheet, descrizione: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 min-h-[60px]"
+                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                  />
+
+                  <div className="border-t border-slate-200 pt-4">
+                    <h4 className="text-sm font-semibold text-slate-700 mb-3" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Esercizi
+                    </h4>
+
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <input
+                        type="text"
+                        placeholder="Nome esercizio"
+                        value={editingExercise.nome}
+                        onChange={(e) => setEditingExercise({ ...editingExercise, nome: e.target.value })}
+                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Ripetizioni (es. 8-10)"
+                        value={editingExercise.ripetizioni}
+                        onChange={(e) => setEditingExercise({ ...editingExercise, ripetizioni: e.target.value })}
+                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Recupero (es. 90s)"
+                        value={editingExercise.recupero}
+                        onChange={(e) => setEditingExercise({ ...editingExercise, recupero: e.target.value })}
+                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                      <input
+                        type="number"
+                        placeholder="Peso target (kg)"
+                        value={editingExercise.pesoTarget || ''}
+                        onChange={(e) => setEditingExercise({ ...editingExercise, pesoTarget: parseFloat(e.target.value) || 0 })}
+                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={addExerciseToSheet}
+                      className="w-full px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all text-sm font-medium"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      <Plus className="w-4 h-4 inline mr-2" />
+                      Aggiungi Esercizio
+                    </button>
+
+                    {newWorkoutSheet.esercizi.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {newWorkoutSheet.esercizi.map((ex, i) => (
+                          <div key={i} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                            <div className="text-sm" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              <span className="font-semibold">{ex.nome}</span> - {ex.ripetizioni} reps, {ex.recupero}
+                              {ex.pesoTarget > 0 && `, ${ex.pesoTarget}kg`}
+                            </div>
+                            <button
+                              onClick={() => removeExerciseFromSheet(i)}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 pt-4 border-t border-slate-200">
+                    <button
+                      onClick={addWorkoutSheet}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      Crea Scheda
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddWorkoutSheet(false);
+                        setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', esercizi: [] });
+                        setEditingExercise({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
+                      }}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Form Aggiungi Progetto */}
             {showAddProject && (

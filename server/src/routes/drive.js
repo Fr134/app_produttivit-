@@ -20,7 +20,9 @@ router.get('/data', async (req, res) => {
       progetti: data.progetti.data,
       task: data.task.data,
       routine: data.routine.data,
-      progresso: data.progresso.data
+      progresso: data.progresso.data,
+      schede: data.schede.data,
+      allenamenti: data.allenamenti.data
     };
 
     res.json({
@@ -41,18 +43,18 @@ router.get('/data', async (req, res) => {
  * POST /api/drive/save
  * Salva i dati sui CSV su Google Drive
  *
- * Body: { progetti, task, routine, progresso }
+ * Body: { progetti, task, routine, progresso, schede, allenamenti }
  * Puoi inviare solo i dati che vuoi aggiornare
  */
 router.post('/save', async (req, res) => {
   try {
-    const { progetti, task, routine, progresso } = req.body;
+    const { progetti, task, routine, progresso, schede, allenamenti } = req.body;
 
     // Validazione: almeno un campo deve essere presente
-    if (!progetti && !task && !routine && !progresso) {
+    if (!progetti && !task && !routine && !progresso && !schede && !allenamenti) {
       return res.status(400).json({
         error: 'Nessun dato da salvare',
-        message: 'Devi fornire almeno uno tra: progetti, task, routine, progresso'
+        message: 'Devi fornire almeno uno tra: progetti, task, routine, progresso, schede, allenamenti'
       });
     }
 
@@ -97,6 +99,26 @@ router.post('/save', async (req, res) => {
         });
       }
       dataToSave.progresso = progresso;
+    }
+
+    if (schede) {
+      if (!Array.isArray(schede)) {
+        return res.status(400).json({
+          error: 'Formato non valido',
+          message: 'schede deve essere un array'
+        });
+      }
+      dataToSave.schede = schede;
+    }
+
+    if (allenamenti) {
+      if (!Array.isArray(allenamenti)) {
+        return res.status(400).json({
+          error: 'Formato non valido',
+          message: 'allenamenti deve essere un array'
+        });
+      }
+      dataToSave.allenamenti = allenamenti;
     }
 
     await saveAllData(dataToSave);
