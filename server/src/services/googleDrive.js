@@ -29,7 +29,7 @@ const CSV_TEMPLATES = {
   task: 'date,taskId,text,completed\n',
   routine: 'id,name,icon,days\n',
   progresso: 'date,type,projectId,value\n',
-  schede: 'id,nome,tipo,descrizione,esercizi\n',
+  schede: 'id,nome,tipo,descrizione,giorni,esercizi\n',
   allenamenti: 'date,schedaId,esercizioNome,pesoEseguito,ripetizioniEseguite\n'
 };
 

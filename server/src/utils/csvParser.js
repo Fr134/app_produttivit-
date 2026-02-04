@@ -127,26 +127,31 @@ export function routineToCSV(routines) {
 }
 
 /**
- * Parse schede CSV with esercizi JSON
+ * Parse schede CSV with esercizi JSON and giorni
  * Formato esercizi: JSON stringified array di oggetti
+ * Formato giorni: "1,3,5" (giorni della settimana)
  */
 export function parseSchedeCSV(csvString) {
   const records = parseCSV(csvString);
 
   return records.map(record => ({
     ...record,
+    giorni: record.giorni
+      ? record.giorni.split(',').map(d => parseInt(d.trim()))
+      : [],
     esercizi: record.esercizi ? JSON.parse(record.esercizi) : []
   }));
 }
 
 /**
- * Convert schede to CSV with esercizi JSON
+ * Convert schede to CSV with esercizi JSON and giorni
  */
 export function schedeToCSV(schede) {
   const records = schede.map(scheda => ({
     ...scheda,
+    giorni: scheda.giorni ? scheda.giorni.join(',') : '',
     esercizi: JSON.stringify(scheda.esercizi || [])
   }));
 
-  return toCSV(records, ['id', 'nome', 'tipo', 'descrizione', 'esercizi']);
+  return toCSV(records, ['id', 'nome', 'tipo', 'descrizione', 'giorni', 'esercizi']);
 }

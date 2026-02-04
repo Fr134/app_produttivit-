@@ -39,7 +39,7 @@ export default function App() {
   const [showAddRoutine, setShowAddRoutine] = useState(false);
   const [newRoutine, setNewRoutine] = useState({ name: '', days: [], icon: '🏃' });
   const [showAddWorkoutSheet, setShowAddWorkoutSheet] = useState(false);
-  const [newWorkoutSheet, setNewWorkoutSheet] = useState({ nome: '', tipo: 'Palestra', descrizione: '', esercizi: [] });
+  const [newWorkoutSheet, setNewWorkoutSheet] = useState({ nome: '', tipo: 'Palestra', descrizione: '', giorni: [], esercizi: [] });
   const [editingExercise, setEditingExercise] = useState({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -490,20 +490,18 @@ export default function App() {
   };
 
   // Workout sheets functions
-  const getWorkoutSheetsForType = (tipo) => {
-    return workoutSheets.filter(sheet => sheet.tipo === tipo);
+  const getWorkoutSheetsForDay = (date) => {
+    const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay(); // 1=lunedì, 7=domenica
+    return workoutSheets.filter(sheet => sheet.giorni && sheet.giorni.includes(dayOfWeek));
   };
 
   const getActiveWorkoutSheet = (date) => {
-    const sportType = getSportForDay(date);
-    if (!sportType) return null;
-
-    const sheets = getWorkoutSheetsForType(sportType);
+    const sheets = getWorkoutSheetsForDay(date);
     if (sheets.length === 1) return sheets[0];
     if (sheets.length > 1) {
       const dateKey = date.toISOString().split('T')[0];
       const selectedId = selectedWorkoutForDay[dateKey];
-      return sheets.find(s => s.id === selectedId) || null;
+      return sheets.find(s => s.id === selectedId) || sheets[0]; // Default alla prima se non selezionata
     }
     return null;
   };
@@ -574,10 +572,19 @@ export default function App() {
   };
 
   const addWorkoutSheet = () => {
-    if (!newWorkoutSheet.nome.trim() || newWorkoutSheet.esercizi.length === 0) return;
+    if (!newWorkoutSheet.nome.trim() || newWorkoutSheet.esercizi.length === 0 || newWorkoutSheet.giorni.length === 0) return;
     setWorkoutSheets(prev => [...prev, { ...newWorkoutSheet, id: Date.now() }]);
-    setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', esercizi: [] });
+    setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', giorni: [], esercizi: [] });
     setShowAddWorkoutSheet(false);
+  };
+
+  const toggleDaySelection = (day) => {
+    setNewWorkoutSheet(prev => ({
+      ...prev,
+      giorni: prev.giorni.includes(day)
+        ? prev.giorni.filter(d => d !== day)
+        : [...prev.giorni, day].sort((a, b) => a - b)
+    }));
   };
 
   // Workout Sheet View Component
@@ -1016,7 +1023,7 @@ export default function App() {
 
                     {sportCompleted && (
                       <div className="px-4 pb-4 border-t border-slate-100">
-                        {getWorkoutSheetsForType(sportForDate).length > 1 && (
+                        {getWorkoutSheetsForDay(selectedDate).length > 1 && (
                           <select
                             value={selectedWorkoutForDay[dateKey] || ''}
                             onChange={(e) => assignWorkoutToDay(selectedDate, e.target.value)}
@@ -1024,7 +1031,7 @@ export default function App() {
                             style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                           >
                             <option value="">Seleziona scheda...</option>
-                            {getWorkoutSheetsForType(sportForDate).map(sheet => (
+                            {getWorkoutSheetsForDay(selectedDate).map(sheet => (
                               <option key={sheet.id} value={sheet.id}>{sheet.nome}</option>
                             ))}
                           </select>
@@ -1391,8 +1398,29 @@ export default function App() {
                               {sheet.descrizione}
                             </div>
                           )}
-                          <div className="text-xs text-slate-500 mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                            {sheet.esercizi.length} esercizi
+                          <div className="flex items-center gap-3 mt-2">
+                            <div className="text-xs text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {sheet.esercizi.length} esercizi
+                            </div>
+                            {sheet.giorni && sheet.giorni.length > 0 && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>•</span>
+                                <div className="flex gap-1">
+                                  {sheet.giorni.map(day => {
+                                    const dayNames = ['', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+                                    return (
+                                      <span
+                                        key={day}
+                                        className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium"
+                                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                                      >
+                                        {dayNames[day]}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <button
@@ -1446,6 +1474,42 @@ export default function App() {
                       <option value="Palestra">Palestra</option>
                       <option value="Corsa">Corsa</option>
                     </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Giorni della Settimana
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { day: 1, label: 'Lun' },
+                        { day: 2, label: 'Mar' },
+                        { day: 3, label: 'Mer' },
+                        { day: 4, label: 'Gio' },
+                        { day: 5, label: 'Ven' },
+                        { day: 6, label: 'Sab' },
+                        { day: 7, label: 'Dom' }
+                      ].map(({ day, label }) => (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => toggleDaySelection(day)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                            newWorkoutSheet.giorni.includes(day)
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                          style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {newWorkoutSheet.giorni.length === 0 && (
+                      <p className="text-xs text-red-500 mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Seleziona almeno un giorno
+                      </p>
+                    )}
                   </div>
 
                   <textarea
@@ -1536,7 +1600,7 @@ export default function App() {
                     <button
                       onClick={() => {
                         setShowAddWorkoutSheet(false);
-                        setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', esercizi: [] });
+                        setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', giorni: [], esercizi: [] });
                         setEditingExercise({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
                       }}
                       className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
