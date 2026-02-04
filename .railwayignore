@@ -1,6 +1,8 @@
 node_modules
 .git
 .env
+server/.env
+client/.env
 .DS_Store
 *.log
 client/node_modules
