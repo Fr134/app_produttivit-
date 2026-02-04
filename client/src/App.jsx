@@ -1,0 +1,1413 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Calendar, CheckSquare, Target, Book, Dumbbell, Plus, ChevronLeft, ChevronRight, Check, X, LogOut, RefreshCw } from 'lucide-react';
+import * as api from './services/api';
+
+export default function App() {
+  // Auth state
+  const [authenticated, setAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Data state
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [view, setView] = useState('week'); // week, day, goals
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [dailyTasks, setDailyTasks] = useState({});
+  const [projects, setProjects] = useState([]);
+  const [habits, setHabits] = useState({
+    sport: { palestra: [1, 3, 5], corsa: [2, 4] },
+    lettura: { target: 30, completed: {} },
+    sportCompleted: {},
+    customRoutines: []
+  });
+
+  // UI state
+  const [newTask, setNewTask] = useState('');
+  const [newProject, setNewProject] = useState({
+    title: '',
+    startDate: '',
+    endDate: '',
+    description: '',
+    timeAllocation: [],
+    completedSessions: {}
+  });
+  const [showAddProject, setShowAddProject] = useState(false);
+  const [showAddRoutine, setShowAddRoutine] = useState(false);
+  const [newRoutine, setNewRoutine] = useState({ name: '', days: [], icon: '🏃' });
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+  const [error, setError] = useState(null);
+
+  // Check authentication on mount
+  useEffect(() => {
+    checkAuth();
+
+    // Check for OAuth callback parameters
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('auth') === 'success') {
+      window.history.replaceState({}, '', window.location.pathname);
+      checkAuth();
+    } else if (params.get('auth') === 'error') {
+      setError('Errore durante l\'autenticazione con Google');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  // Load data when authenticated
+  useEffect(() => {
+    if (authenticated) {
+      loadData();
+      loadCalendarEvents();
+    }
+  }, [authenticated]);
+
+  // Auto-save every 2 minutes
+  useEffect(() => {
+    if (!authenticated) return;
+
+    const interval = setInterval(() => {
+      saveData();
+    }, 2 * 60 * 1000); // 2 minuti
+
+    return () => clearInterval(interval);
+  }, [authenticated, projects, dailyTasks, habits]);
+
+  // Reload calendar events when date changes
+  useEffect(() => {
+    if (authenticated) {
+      loadCalendarEvents();
+    }
+  }, [currentDate, authenticated]);
+
+  async function checkAuth() {
+    try {
+      const result = await api.checkAuthStatus();
+      setAuthenticated(result.authenticated);
+    } catch (error) {
+      console.error('Error checking auth:', error);
+      setAuthenticated(false);
+    } finally {
+      setCheckingAuth(false);
+    }
+  }
+
+  async function loadData() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const result = await api.loadAllData();
+      const { data } = result;
+
+      // Load projects
+      if (data.progetti && data.progetti.length > 0) {
+        setProjects(data.progetti);
+      }
+
+      // Load tasks - convert to dailyTasks format
+      if (data.task && data.task.length > 0) {
+        const tasksMap = {};
+        data.task.forEach(task => {
+          if (!tasksMap[task.date]) {
+            tasksMap[task.date] = [];
+          }
+          tasksMap[task.date].push({
+            id: task.taskId,
+            text: task.text,
+            completed: task.completed
+          });
+        });
+        setDailyTasks(tasksMap);
+      }
+
+      // Load routines
+      if (data.routine && data.routine.length > 0) {
+        setHabits(prev => ({
+          ...prev,
+          customRoutines: data.routine
+        }));
+      }
+
+      // Load progresso (habit tracking)
+      if (data.progresso && data.progresso.length > 0) {
+        const sportCompleted = {};
+        const letturaCompleted = {};
+
+        data.progresso.forEach(item => {
+          if (item.type === 'sport') {
+            sportCompleted[item.date] = item.value;
+          } else if (item.type === 'lettura') {
+            letturaCompleted[item.date] = item.value;
+          }
+        });
+
+        setHabits(prev => ({
+          ...prev,
+          sportCompleted,
+          lettura: {
+            ...prev.lettura,
+            completed: letturaCompleted
+          }
+        }));
+      }
+
+      setLastSync(new Date());
+      console.log('✅ Dati caricati con successo');
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError('Errore nel caricamento dei dati: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveData() {
+    if (syncing) return;
+
+    try {
+      setSyncing(true);
+      setError(null);
+
+      // Convert dailyTasks to task array
+      const taskArray = [];
+      Object.entries(dailyTasks).forEach(([date, tasks]) => {
+        tasks.forEach(task => {
+          taskArray.push({
+            date,
+            taskId: task.id,
+            text: task.text,
+            completed: task.completed
+          });
+        });
+      });
+
+      // Convert progresso
+      const progressoArray = [];
+      Object.entries(habits.sportCompleted).forEach(([date, value]) => {
+        progressoArray.push({
+          date,
+          type: 'sport',
+          projectId: '',
+          value
+        });
+      });
+      Object.entries(habits.lettura.completed).forEach(([date, value]) => {
+        progressoArray.push({
+          date,
+          type: 'lettura',
+          projectId: '',
+          value
+        });
+      });
+
+      await api.saveAllData({
+        progetti: projects,
+        task: taskArray,
+        routine: habits.customRoutines,
+        progresso: progressoArray
+      });
+
+      setLastSync(new Date());
+      console.log('✅ Dati salvati su Drive');
+    } catch (error) {
+      console.error('Error saving data:', error);
+      setError('Errore nel salvataggio: ' + error.message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function loadCalendarEvents() {
+    try {
+      setLoading(true);
+      const weekDays = getWeekDays();
+      const start = weekDays[0];
+      const end = weekDays[6];
+
+      const result = await api.getCalendarEvents(start, end);
+
+      // Convert date strings to Date objects
+      const events = result.events.map(event => ({
+        ...event,
+        start: new Date(event.start),
+        end: new Date(event.end)
+      }));
+
+      setCalendarEvents(events);
+    } catch (error) {
+      console.error('Error loading calendar events:', error);
+      // Non mostrare errore per calendar (non critico)
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    api.logout().then(() => {
+      setAuthenticated(false);
+      setCalendarEvents([]);
+      setDailyTasks({});
+      setProjects([]);
+      setHabits({
+        sport: { palestra: [1, 3, 5], corsa: [2, 4] },
+        lettura: { target: 30, completed: {} },
+        sportCompleted: {},
+        customRoutines: []
+      });
+      api.clearLocalStorage();
+    });
+  }
+
+  // Utility functions (unchanged from original)
+  const getWeekDays = () => {
+    const start = new Date(currentDate);
+    start.setDate(start.getDate() - start.getDay() + 1);
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + i);
+      return date;
+    });
+  };
+
+  const formatDate = (date) => {
+    return date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+  };
+
+  const formatDateFull = (date) => {
+    return date.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
+  const getDayName = (date) => {
+    return date.toLocaleDateString('it-IT', { weekday: 'short' });
+  };
+
+  const isSameDay = (date1, date2) => {
+    return date1.getDate() === date2.getDate() &&
+           date1.getMonth() === date2.getMonth() &&
+           date1.getFullYear() === date2.getFullYear();
+  };
+
+  const getEventsForDate = (date) => {
+    return calendarEvents.filter(event => isSameDay(new Date(event.start), date));
+  };
+
+  const getSportForDay = (date) => {
+    const dayOfWeek = date.getDay();
+    if (habits.sport.palestra.includes(dayOfWeek)) return 'Palestra';
+    if (habits.sport.corsa.includes(dayOfWeek)) return 'Corsa';
+    return null;
+  };
+
+  const addTask = (date) => {
+    if (!newTask.trim()) return;
+    const dateKey = date.toISOString().split('T')[0];
+    setDailyTasks(prev => ({
+      ...prev,
+      [dateKey]: [...(prev[dateKey] || []), { id: Date.now(), text: newTask, completed: false }]
+    }));
+    setNewTask('');
+  };
+
+  const toggleTask = (date, taskId) => {
+    const dateKey = date.toISOString().split('T')[0];
+    setDailyTasks(prev => ({
+      ...prev,
+      [dateKey]: prev[dateKey].map(task =>
+        task.id === taskId ? { ...task, completed: !task.completed } : task
+      )
+    }));
+  };
+
+  const toggleReadingHabit = (date) => {
+    const dateKey = date.toISOString().split('T')[0];
+    setHabits(prev => ({
+      ...prev,
+      lettura: {
+        ...prev.lettura,
+        completed: {
+          ...prev.lettura.completed,
+          [dateKey]: !prev.lettura.completed[dateKey]
+        }
+      }
+    }));
+  };
+
+  const toggleSportCompleted = (date) => {
+    const dateKey = date.toISOString().split('T')[0];
+    setHabits(prev => ({
+      ...prev,
+      sportCompleted: {
+        ...prev.sportCompleted,
+        [dateKey]: !prev.sportCompleted[dateKey]
+      }
+    }));
+  };
+
+  const addCustomRoutine = () => {
+    if (!newRoutine.name.trim() || newRoutine.days.length === 0) return;
+    setHabits(prev => ({
+      ...prev,
+      customRoutines: [...prev.customRoutines, { ...newRoutine, id: Date.now() }]
+    }));
+    setNewRoutine({ name: '', days: [], icon: '🏃' });
+    setShowAddRoutine(false);
+  };
+
+  const toggleRoutineDay = (day) => {
+    setNewRoutine(prev => ({
+      ...prev,
+      days: prev.days.includes(day)
+        ? prev.days.filter(d => d !== day)
+        : [...prev.days, day]
+    }));
+  };
+
+  const getCustomRoutinesForDay = (date) => {
+    const dayOfWeek = date.getDay();
+    return habits.customRoutines.filter(routine => routine.days.includes(dayOfWeek));
+  };
+
+  const addProject = () => {
+    if (!newProject.title.trim() || !newProject.startDate || !newProject.endDate) return;
+    setProjects(prev => [...prev, { ...newProject, id: Date.now(), completed: false }]);
+    setNewProject({
+      title: '',
+      startDate: '',
+      endDate: '',
+      description: '',
+      timeAllocation: [],
+      completedSessions: {}
+    });
+    setShowAddProject(false);
+  };
+
+  const updateProjectTimeAllocation = (day, hours) => {
+    setNewProject(prev => {
+      const existing = prev.timeAllocation.find(t => t.day === day);
+      if (existing) {
+        if (hours === 0) {
+          return {
+            ...prev,
+            timeAllocation: prev.timeAllocation.filter(t => t.day !== day)
+          };
+        }
+        return {
+          ...prev,
+          timeAllocation: prev.timeAllocation.map(t =>
+            t.day === day ? { day, hours } : t
+          )
+        };
+      }
+      if (hours > 0) {
+        return {
+          ...prev,
+          timeAllocation: [...prev.timeAllocation, { day, hours }]
+        };
+      }
+      return prev;
+    });
+  };
+
+  const getProjectsForDate = (date) => {
+    const dayOfWeek = date.getDay();
+    return projects.filter(project => {
+      if (project.completed) return false;
+      const start = new Date(project.startDate);
+      const end = new Date(project.endDate);
+      const current = new Date(date);
+      current.setHours(0, 0, 0, 0);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+
+      if (current < start || current > end) return false;
+      return project.timeAllocation.some(t => t.day === dayOfWeek);
+    });
+  };
+
+  const getProjectHoursForDate = (project, date) => {
+    const dayOfWeek = date.getDay();
+    const allocation = project.timeAllocation.find(t => t.day === dayOfWeek);
+    return allocation ? allocation.hours : 0;
+  };
+
+  const updateProjectProgress = (projectId, date, hoursCompleted) => {
+    const dateKey = date.toISOString().split('T')[0];
+    setProjects(prev => prev.map(project => {
+      if (project.id === projectId) {
+        return {
+          ...project,
+          completedSessions: {
+            ...project.completedSessions,
+            [dateKey]: hoursCompleted
+          }
+        };
+      }
+      return project;
+    }));
+  };
+
+  // Login screen
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600">Caricamento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-3xl flex items-center justify-center shadow-lg shadow-indigo-200 mx-auto mb-6">
+            <Calendar className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+            Il Mio Planner
+          </h1>
+          <p className="text-slate-600 mb-8" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+            Organizza la tua settimana con Google Calendar e Drive
+          </p>
+
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={() => api.loginWithGoogle()}
+            className="w-full px-6 py-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 font-semibold flex items-center justify-center gap-3"
+            style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+          >
+            <svg className="w-6 h-6" viewBox="0 0 24 24">
+              <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Connetti con Google
+          </button>
+
+          <p className="text-xs text-slate-400 mt-6" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+            Accesso sicuro tramite OAuth2. I tuoi dati sono salvati su Google Drive.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const weekDays = getWeekDays();
+  const dateKey = selectedDate.toISOString().split('T')[0];
+  const tasksForDate = dailyTasks[dateKey] || [];
+  const eventsForDate = getEventsForDate(selectedDate);
+  const sportForDate = getSportForDay(selectedDate);
+  const readingCompleted = habits.lettura.completed[dateKey];
+  const sportCompleted = habits.sportCompleted[dateKey];
+  const customRoutines = getCustomRoutinesForDay(selectedDate);
+  const projectsForDate = getProjectsForDate(selectedDate);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-lg border-b border-slate-200/50 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                <Calendar className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Il Mio Planner
+                </h1>
+                <p className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                  {lastSync ? `Ultimo salvataggio: ${lastSync.toLocaleTimeString('it-IT')}` : 'Organizza la tua settimana'}
+                  {syncing && ' - Salvataggio...'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setView('week')}
+                className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                  view === 'week'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+              >
+                Settimana
+              </button>
+              <button
+                onClick={() => setView('day')}
+                className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                  view === 'day'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+              >
+                Giorno
+              </button>
+              <button
+                onClick={() => setView('goals')}
+                className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                  view === 'goals'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+              >
+                Progetti
+              </button>
+              <button
+                onClick={saveData}
+                disabled={syncing}
+                className="p-2 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50"
+                title="Salva ora"
+              >
+                <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={handleLogout}
+                className="p-2 rounded-xl bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all"
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {error && (
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Rest of the UI - same as original planning-app.jsx */}
+        {view === 'week' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Settimana del {formatDate(weekDays[0])} - {formatDate(weekDays[6])}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const newDate = new Date(currentDate);
+                    newDate.setDate(newDate.getDate() - 7);
+                    setCurrentDate(newDate);
+                  }}
+                  className="p-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm"
+                >
+                  <ChevronLeft className="w-5 h-5 text-slate-600" />
+                </button>
+                <button
+                  onClick={() => setCurrentDate(new Date())}
+                  className="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm font-medium text-slate-600"
+                  style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                >
+                  Oggi
+                </button>
+                <button
+                  onClick={() => {
+                    const newDate = new Date(currentDate);
+                    newDate.setDate(newDate.getDate() + 7);
+                    setCurrentDate(newDate);
+                  }}
+                  className="p-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm"
+                >
+                  <ChevronRight className="w-5 h-5 text-slate-600" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-4">
+              {weekDays.map((day, index) => {
+                const events = getEventsForDate(day);
+                const sport = getSportForDay(day);
+                const isToday = isSameDay(day, new Date());
+                const dayKey = day.toISOString().split('T')[0];
+                const dayTasks = dailyTasks[dayKey] || [];
+
+                return (
+                  <div
+                    key={index}
+                    onClick={() => {
+                      setSelectedDate(day);
+                      setView('day');
+                    }}
+                    className={`bg-white rounded-2xl p-4 cursor-pointer transition-all hover:shadow-xl hover:scale-105 ${
+                      isToday ? 'ring-2 ring-indigo-500 shadow-lg' : 'shadow-sm'
+                    }`}
+                  >
+                    <div className="text-center mb-3">
+                      <div className={`text-sm font-semibold ${isToday ? 'text-indigo-600' : 'text-slate-500'}`} style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        {getDayName(day).toUpperCase()}
+                      </div>
+                      <div className={`text-2xl font-bold ${isToday ? 'text-indigo-600' : 'text-slate-800'}`} style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                        {day.getDate()}
+                      </div>
+                    </div>
+
+                    {sport && (
+                      <div className="mb-2 px-2 py-1 bg-green-50 rounded-lg flex items-center gap-1">
+                        <Dumbbell className="w-3 h-3 text-green-600" />
+                        <span className="text-xs text-green-700 font-medium" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>{sport}</span>
+                      </div>
+                    )}
+
+                    {events.map(event => (
+                      <div key={event.id} className="mb-2 px-2 py-1 bg-blue-50 rounded-lg">
+                        <div className="text-xs text-blue-700 font-medium truncate" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} {event.title}
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="text-xs text-slate-500 mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      {dayTasks.filter(t => t.completed).length}/{dayTasks.length} task
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Sport routine weekly view */}
+            <div className="mt-8 bg-white rounded-2xl p-6 shadow-sm">
+              <h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                <Dumbbell className="w-6 h-6 text-green-600" />
+                Routine Sport Settimanale
+              </h3>
+              <div className="grid grid-cols-7 gap-4">
+                {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map((day, index) => {
+                  const dayNum = index === 6 ? 0 : index + 1;
+                  let activity = 'Riposo';
+                  if (habits.sport.palestra.includes(dayNum)) activity = 'Palestra';
+                  if (habits.sport.corsa.includes(dayNum)) activity = 'Corsa';
+
+                  return (
+                    <div key={index} className="text-center">
+                      <div className="text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>{day}</div>
+                      <div className={`px-3 py-2 rounded-xl text-sm font-medium ${
+                        activity === 'Palestra' ? 'bg-green-100 text-green-700' :
+                        activity === 'Corsa' ? 'bg-blue-100 text-blue-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`} style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        {activity}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Vista Giorno */}
+        {view === 'day' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                {formatDateFull(selectedDate)}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(newDate.getDate() - 1);
+                    setSelectedDate(newDate);
+                  }}
+                  className="p-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm"
+                >
+                  <ChevronLeft className="w-5 h-5 text-slate-600" />
+                </button>
+                <button
+                  onClick={() => setSelectedDate(new Date())}
+                  className="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm font-medium text-slate-600"
+                  style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                >
+                  Oggi
+                </button>
+                <button
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(newDate.getDate() + 1);
+                    setSelectedDate(newDate);
+                  }}
+                  className="p-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm"
+                >
+                  <ChevronRight className="w-5 h-5 text-slate-600" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Sport e Routine */}
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-green-800 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                    <Dumbbell className="w-5 h-5" />
+                    Routine Quotidiana
+                  </h3>
+                  <button
+                    onClick={() => setShowAddRoutine(true)}
+                    className="text-green-700 hover:text-green-800 p-1"
+                    title="Aggiungi routine personalizzata"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {sportForDate && (
+                  <div
+                    onClick={() => toggleSportCompleted(selectedDate)}
+                    className="flex items-center gap-3 p-4 bg-white rounded-xl cursor-pointer hover:bg-green-50 transition-all mb-3"
+                  >
+                    <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center ${
+                      sportCompleted ? 'bg-green-600 border-green-600' : 'border-slate-300'
+                    }`}>
+                      {sportCompleted && <Check className="w-4 h-4 text-white" />}
+                    </div>
+                    <div>
+                      <div className="font-medium text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        {sportForDate}
+                      </div>
+                      <div className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        {sportCompleted ? 'Completato! 💪' : 'Da fare'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {customRoutines.map(routine => {
+                  const routineKey = `routine_${routine.id}_${dateKey}`;
+                  const isCompleted = habits.sportCompleted[routineKey];
+
+                  return (
+                    <div
+                      key={routine.id}
+                      onClick={() => {
+                        setHabits(prev => ({
+                          ...prev,
+                          sportCompleted: {
+                            ...prev.sportCompleted,
+                            [routineKey]: !isCompleted
+                          }
+                        }));
+                      }}
+                      className="flex items-center gap-3 p-4 bg-white rounded-xl cursor-pointer hover:bg-green-50 transition-all mb-3"
+                    >
+                      <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center ${
+                        isCompleted ? 'bg-green-600 border-green-600' : 'border-slate-300'
+                      }`}>
+                        {isCompleted && <Check className="w-4 h-4 text-white" />}
+                      </div>
+                      <div>
+                        <div className="font-medium text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {routine.icon} {routine.name}
+                        </div>
+                        <div className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {isCompleted ? 'Completato! ✓' : 'Da fare'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!sportForDate && customRoutines.length === 0 && (
+                  <div className="text-center py-4 text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                    Nessuna routine per oggi
+                  </div>
+                )}
+              </div>
+
+              {/* Eventi Google Calendar */}
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-sm lg:col-span-2">
+                <h3 className="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  <Calendar className="w-5 h-5" />
+                  Eventi dal Calendario
+                </h3>
+                {loading ? (
+                  <div className="text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>Caricamento eventi...</div>
+                ) : eventsForDate.length === 0 ? (
+                  <div className="text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>Nessun evento programmato</div>
+                ) : (
+                  <div className="space-y-3">
+                    {eventsForDate.map(event => (
+                      <div key={event.id} className="bg-white rounded-xl p-4 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          <div className="bg-indigo-100 rounded-lg px-3 py-2 text-center">
+                            <div className="text-xs font-semibold text-indigo-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')}
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold text-slate-800" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>{event.title}</h4>
+                            {event.attendees && event.attendees.length > 0 && (
+                              <p className="text-sm text-slate-600 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                Con: {event.attendees.join(', ')}
+                              </p>
+                            )}
+                            {event.location && (
+                              <p className="text-sm text-slate-500 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>📍 {event.location}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Progetti del Giorno */}
+              {projectsForDate.length > 0 && (
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-6 shadow-sm lg:col-span-3">
+                  <h3 className="text-lg font-bold text-purple-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                    <Target className="w-5 h-5" />
+                    Progetti in Corso
+                  </h3>
+                  <div className="space-y-3">
+                    {projectsForDate.map(project => {
+                      const plannedHours = getProjectHoursForDate(project, selectedDate);
+                      const completedHours = project.completedSessions[dateKey] || 0;
+
+                      return (
+                        <div key={project.id} className="bg-white rounded-xl p-4 shadow-sm">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-slate-800 text-lg" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                {project.title}
+                              </h4>
+                              {project.description && (
+                                <p className="text-sm text-slate-600 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                  {project.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-semibold text-purple-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                  Ore pianificate oggi: {plannedHours}h
+                                </span>
+                                <span className="text-sm text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                  {completedHours}/{plannedHours}h
+                                </span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2">
+                                <div
+                                  className="bg-purple-600 h-2 rounded-full transition-all"
+                                  style={{ width: `${(completedHours / plannedHours) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              {[...Array(Math.ceil(plannedHours))].map((_, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => {
+                                    const newCompleted = i + 1 === completedHours ? i : i + 1;
+                                    updateProjectProgress(project.id, selectedDate, newCompleted);
+                                  }}
+                                  className={`w-10 h-10 rounded-lg font-bold transition-all ${
+                                    i < completedHours
+                                      ? 'bg-purple-600 text-white'
+                                      : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                                  }`}
+                                  style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                                >
+                                  {i + 1}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Task del Giorno */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm lg:col-span-2">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  <CheckSquare className="w-5 h-5 text-indigo-600" />
+                  Task del Giorno
+                </h3>
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newTask}
+                    onChange={(e) => setNewTask(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addTask(selectedDate)}
+                    placeholder="Aggiungi un nuovo task..."
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                  />
+                  <button
+                    onClick={() => addTask(selectedDate)}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-sm"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {tasksForDate.length === 0 ? (
+                    <p className="text-slate-400 text-center py-4" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>Nessun task per oggi</p>
+                  ) : (
+                    tasksForDate.map(task => (
+                      <div
+                        key={task.id}
+                        onClick={() => toggleTask(selectedDate, task.id)}
+                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-all"
+                      >
+                        <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center ${
+                          task.completed ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                        }`}>
+                          {task.completed && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <span className={`flex-1 ${task.completed ? 'line-through text-slate-400' : 'text-slate-700'}`} style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {task.text}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Lettura */}
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-6 shadow-sm">
+                <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  <Book className="w-5 h-5" />
+                  Lettura Quotidiana
+                </h3>
+                <div
+                  onClick={() => toggleReadingHabit(selectedDate)}
+                  className="flex items-center gap-3 p-4 bg-white rounded-xl cursor-pointer hover:bg-amber-50 transition-all"
+                >
+                  <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center ${
+                    readingCompleted ? 'bg-amber-600 border-amber-600' : 'border-slate-300'
+                  }`}>
+                    {readingCompleted && <Check className="w-4 h-4 text-white" />}
+                  </div>
+                  <div>
+                    <div className="font-medium text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Leggere {habits.lettura.target} pagine
+                    </div>
+                    <div className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      {readingCompleted ? 'Completato! 📚' : 'Da fare'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Vista Progetti */}
+        {view === 'goals' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Progetti a Lungo Termine
+              </h2>
+              <button
+                onClick={() => setShowAddProject(true)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
+                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+              >
+                <Plus className="w-5 h-5" />
+                Nuovo Progetto
+              </button>
+            </div>
+
+            {/* Sezione Routine Personalizzate */}
+            <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Routine Personalizzate
+                </h3>
+                <button
+                  onClick={() => setShowAddRoutine(true)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all flex items-center gap-2"
+                  style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                >
+                  <Plus className="w-5 h-5" />
+                  Nuova Routine
+                </button>
+              </div>
+
+              {habits.customRoutines.length === 0 ? (
+                <p className="text-slate-400 text-center py-4" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                  Nessuna routine personalizzata. Aggiungine una!
+                </p>
+              ) : (
+                <div className="grid gap-3">
+                  {habits.customRoutines.map(routine => (
+                    <div key={routine.id} className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
+                      <div className="text-2xl">{routine.icon}</div>
+                      <div className="flex-1">
+                        <div className="font-semibold text-slate-800" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {routine.name}
+                        </div>
+                        <div className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {routine.days.map(d => ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][d]).join(', ')}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setHabits(prev => ({
+                            ...prev,
+                            customRoutines: prev.customRoutines.filter(r => r.id !== routine.id)
+                          }));
+                        }}
+                        className="text-red-500 hover:text-red-700 p-2"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Form Aggiungi Progetto */}
+            {showAddProject && (
+              <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Aggiungi Nuovo Progetto
+                </h3>
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Titolo progetto (es. Sviluppo App Mobile, Corso Online...)"
+                    value={newProject.title}
+                    onChange={(e) => setNewProject({ ...newProject, title: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                  />
+
+                  <textarea
+                    placeholder="Descrizione (opzionale)"
+                    value={newProject.description}
+                    onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[80px]"
+                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                  />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Data Inizio
+                      </label>
+                      <input
+                        type="date"
+                        value={newProject.startDate}
+                        onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
+                        className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Data Fine
+                      </label>
+                      <input
+                        type="date"
+                        value={newProject.endDate}
+                        onChange={(e) => setNewProject({ ...newProject, endDate: e.target.value })}
+                        className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-600 mb-3" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Allocazione Ore Settimanali
+                    </label>
+                    <div className="grid grid-cols-7 gap-2">
+                      {['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'].map((day, index) => {
+                        const allocation = newProject.timeAllocation.find(t => t.day === index);
+                        const hours = allocation ? allocation.hours : 0;
+
+                        return (
+                          <div key={index} className="text-center">
+                            <div className="text-xs font-semibold text-slate-500 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {day}
+                            </div>
+                            <input
+                              type="number"
+                              min="0"
+                              max="24"
+                              step="0.5"
+                              value={hours}
+                              onChange={(e) => updateProjectTimeAllocation(index, parseFloat(e.target.value) || 0)}
+                              className="w-full px-2 py-2 border border-slate-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                              placeholder="0"
+                            />
+                            <div className="text-xs text-slate-400 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              ore
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-sm text-slate-500 mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Totale settimanale: {newProject.timeAllocation.reduce((sum, t) => sum + t.hours, 0)} ore
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addProject}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      Aggiungi Progetto
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddProject(false);
+                        setNewProject({
+                          title: '',
+                          startDate: '',
+                          endDate: '',
+                          description: '',
+                          timeAllocation: [],
+                          completedSessions: {}
+                        });
+                      }}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Form Aggiungi Routine */}
+            {showAddRoutine && (
+              <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>Aggiungi Nuova Routine</h3>
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Icona (emoji)"
+                      value={newRoutine.icon}
+                      onChange={(e) => setNewRoutine({ ...newRoutine, icon: e.target.value })}
+                      className="w-20 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-center text-xl"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Nome routine (es. Meditazione, Yoga, Stretching...)"
+                      value={newRoutine.name}
+                      onChange={(e) => setNewRoutine({ ...newRoutine, name: e.target.value })}
+                      className="flex-1 px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Seleziona i giorni:
+                    </label>
+                    <div className="flex gap-2 flex-wrap">
+                      {['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'].map((day, index) => (
+                        <button
+                          key={index}
+                          onClick={() => toggleRoutineDay(index)}
+                          className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                            newRoutine.days.includes(index)
+                              ? 'bg-green-600 text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                          style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                        >
+                          {day}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addCustomRoutine}
+                      className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      Aggiungi Routine
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddRoutine(false);
+                        setNewRoutine({ name: '', days: [], icon: '🏃' });
+                      }}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Lista Progetti */}
+            <div className="grid gap-4">
+              {projects.length === 0 ? (
+                <div className="bg-white rounded-2xl p-12 shadow-sm text-center">
+                  <Target className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-400 text-lg" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                    Nessun progetto in corso. Aggiungine uno!
+                  </p>
+                </div>
+              ) : (
+                projects.map(project => {
+                  const start = new Date(project.startDate);
+                  const end = new Date(project.endDate);
+                  const today = new Date();
+                  const totalDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+                  const daysPassed = Math.max(0, Math.ceil((today - start) / (1000 * 60 * 60 * 24)));
+                  const progressPercentage = Math.min(100, (daysPassed / totalDays) * 100);
+
+                  const totalPlannedHours = project.timeAllocation.reduce((sum, t) => sum + t.hours, 0);
+                  const completedHours = Object.values(project.completedSessions).reduce((sum, h) => sum + h, 0);
+
+                  return (
+                    <div key={project.id} className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-all">
+                      <div className="flex items-start gap-4">
+                        <div
+                          onClick={() => {
+                            setProjects(prev =>
+                              prev.map(p => p.id === project.id ? { ...p, completed: !p.completed } : p)
+                            );
+                          }}
+                          className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center cursor-pointer ${
+                            project.completed ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                          }`}
+                        >
+                          {project.completed && <Check className="w-5 h-5 text-white" />}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className={`text-xl font-bold mb-2 ${project.completed ? 'line-through text-slate-400' : 'text-slate-800'}`} style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                            {project.title}
+                          </h3>
+                          {project.description && (
+                            <p className="text-slate-600 mb-3" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              {project.description}
+                            </p>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-500 mb-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                Periodo
+                              </div>
+                              <div className="text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                {start.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} - {end.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-sm font-semibold text-slate-500 mb-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                Ore Completate
+                              </div>
+                              <div className="text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                {completedHours}h totali
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mb-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                Progresso Temporale
+                              </span>
+                              <span className="text-sm text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                {daysPassed}/{totalDays} giorni
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-2">
+                              <div
+                                className="bg-indigo-600 h-2 rounded-full transition-all"
+                                style={{ width: `${progressPercentage}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              Allocazione Settimanale (totale: {totalPlannedHours}h/settimana)
+                            </div>
+                            <div className="flex gap-2">
+                              {['D', 'L', 'M', 'M', 'G', 'V', 'S'].map((day, index) => {
+                                const allocation = project.timeAllocation.find(t => t.day === index);
+                                const hours = allocation ? allocation.hours : 0;
+
+                                return (
+                                  <div key={index} className={`flex-1 text-center py-2 rounded-lg ${
+                                    hours > 0 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-400'
+                                  }`}>
+                                    <div className="text-xs font-semibold" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                      {day}
+                                    </div>
+                                    {hours > 0 && (
+                                      <div className="text-xs font-bold" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                        {hours}h
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setProjects(prev => prev.filter(p => p.id !== project.id));
+                          }}
+                          className="text-red-500 hover:text-red-700 p-2"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {view !== 'week' && (
+        <button
+          onClick={() => setView('week')}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl hover:bg-indigo-700 transition-all hover:scale-110 flex items-center justify-center"
+        >
+          <Calendar className="w-6 h-6" />
+        </button>
+      )}
+    </div>
+  );
+}
