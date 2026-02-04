@@ -45,6 +45,12 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const [error, setError] = useState(null);
+  const [validationErrors, setValidationErrors] = useState({});
+
+  // Edit mode state
+  const [editingRoutineId, setEditingRoutineId] = useState(null);
+  const [editingProjectId, setEditingProjectId] = useState(null);
+  const [editingWorkoutSheetId, setEditingWorkoutSheetId] = useState(null);
 
   // Check authentication on mount
   useEffect(() => {
@@ -388,10 +394,26 @@ export default function App() {
 
   const addCustomRoutine = () => {
     if (!newRoutine.name.trim() || newRoutine.days.length === 0) return;
-    setHabits(prev => ({
-      ...prev,
-      customRoutines: [...prev.customRoutines, { ...newRoutine, id: Date.now() }]
-    }));
+
+    if (editingRoutineId) {
+      // Update existing routine
+      setHabits(prev => ({
+        ...prev,
+        customRoutines: prev.customRoutines.map(routine =>
+          routine.id === editingRoutineId
+            ? { ...newRoutine, id: editingRoutineId }
+            : routine
+        )
+      }));
+      setEditingRoutineId(null);
+    } else {
+      // Add new routine
+      setHabits(prev => ({
+        ...prev,
+        customRoutines: [...prev.customRoutines, { ...newRoutine, id: Date.now() }]
+      }));
+    }
+
     setNewRoutine({ name: '', days: [], icon: '🏃' });
     setShowAddRoutine(false);
   };
@@ -412,7 +434,20 @@ export default function App() {
 
   const addProject = () => {
     if (!newProject.title.trim() || !newProject.startDate || !newProject.endDate) return;
-    setProjects(prev => [...prev, { ...newProject, id: Date.now(), completed: false }]);
+
+    if (editingProjectId) {
+      // Update existing project
+      setProjects(prev => prev.map(project =>
+        project.id === editingProjectId
+          ? { ...newProject, id: editingProjectId, completed: project.completed }
+          : project
+      ));
+      setEditingProjectId(null);
+    } else {
+      // Add new project
+      setProjects(prev => [...prev, { ...newProject, id: Date.now(), completed: false }]);
+    }
+
     setNewProject({
       title: '',
       startDate: '',
@@ -572,10 +607,33 @@ export default function App() {
   };
 
   const addWorkoutSheet = () => {
-    if (!newWorkoutSheet.nome.trim() || newWorkoutSheet.esercizi.length === 0 || newWorkoutSheet.giorni.length === 0) return;
-    setWorkoutSheets(prev => [...prev, { ...newWorkoutSheet, id: Date.now() }]);
+    // Validation
+    const errors = {};
+    if (!newWorkoutSheet.nome.trim()) errors.nome = 'Il nome è obbligatorio';
+    if (newWorkoutSheet.esercizi.length === 0) errors.esercizi = 'Aggiungi almeno un esercizio';
+    if (newWorkoutSheet.giorni.length === 0) errors.giorni = 'Seleziona almeno un giorno';
+
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+
+    if (editingWorkoutSheetId) {
+      // Update existing sheet
+      setWorkoutSheets(prev => prev.map(sheet =>
+        sheet.id === editingWorkoutSheetId
+          ? { ...newWorkoutSheet, id: editingWorkoutSheetId }
+          : sheet
+      ));
+      setEditingWorkoutSheetId(null);
+    } else {
+      // Add new sheet
+      setWorkoutSheets(prev => [...prev, { ...newWorkoutSheet, id: Date.now() }]);
+    }
+
     setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', giorni: [], esercizi: [] });
     setShowAddWorkoutSheet(false);
+    setValidationErrors({});
   };
 
   const toggleDaySelection = (day) => {
@@ -585,6 +643,43 @@ export default function App() {
         ? prev.giorni.filter(d => d !== day)
         : [...prev.giorni, day].sort((a, b) => a - b)
     }));
+  };
+
+  // Edit handlers
+  const startEditWorkoutSheet = (sheet) => {
+    setNewWorkoutSheet({
+      nome: sheet.nome,
+      tipo: sheet.tipo,
+      descrizione: sheet.descrizione,
+      giorni: sheet.giorni,
+      esercizi: sheet.esercizi
+    });
+    setEditingWorkoutSheetId(sheet.id);
+    setShowAddWorkoutSheet(true);
+    setValidationErrors({});
+  };
+
+  const startEditRoutine = (routine) => {
+    setNewRoutine({
+      name: routine.name,
+      days: routine.days,
+      icon: routine.icon
+    });
+    setEditingRoutineId(routine.id);
+    setShowAddRoutine(true);
+  };
+
+  const startEditProject = (project) => {
+    setNewProject({
+      title: project.title,
+      description: project.description,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      timeAllocation: project.timeAllocation,
+      completedSessions: project.completedSessions
+    });
+    setEditingProjectId(project.id);
+    setShowAddProject(true);
   };
 
   // Workout Sheet View Component
@@ -1341,6 +1436,13 @@ export default function App() {
                         </div>
                       </div>
                       <button
+                        onClick={() => startEditRoutine(routine)}
+                        className="text-blue-500 hover:text-blue-700 p-2"
+                        title="Modifica routine"
+                      >
+                        <Edit2 className="w-5 h-5" />
+                      </button>
+                      <button
                         onClick={() => {
                           setHabits(prev => ({
                             ...prev,
@@ -1423,14 +1525,23 @@ export default function App() {
                             )}
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setWorkoutSheets(prev => prev.filter(s => s.id !== sheet.id));
-                          }}
-                          className="text-red-500 hover:text-red-700 p-2"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => startEditWorkoutSheet(sheet)}
+                            className="text-blue-500 hover:text-blue-700 p-2"
+                            title="Modifica scheda"
+                          >
+                            <Edit2 className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setWorkoutSheets(prev => prev.filter(s => s.id !== sheet.id));
+                            }}
+                            className="text-red-500 hover:text-red-700 p-2"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
                       <div className="mt-3 space-y-1">
                         {sheet.esercizi.map((ex, i) => (
@@ -1449,17 +1560,26 @@ export default function App() {
             {showAddWorkoutSheet && (
               <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                  Crea Nuova Scheda di Allenamento
+                  {editingWorkoutSheetId ? 'Modifica Scheda di Allenamento' : 'Crea Nuova Scheda di Allenamento'}
                 </h3>
                 <div className="space-y-4">
-                  <input
-                    type="text"
-                    placeholder="Nome scheda (es. Push Day, Full Body...)"
-                    value={newWorkoutSheet.nome}
-                    onChange={(e) => setNewWorkoutSheet({ ...newWorkoutSheet, nome: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-                  />
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Nome scheda (es. Push Day, Full Body...)"
+                      value={newWorkoutSheet.nome}
+                      onChange={(e) => setNewWorkoutSheet({ ...newWorkoutSheet, nome: e.target.value })}
+                      className={`w-full px-4 py-2 border rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 ${
+                        validationErrors.nome ? 'border-red-500' : 'border-slate-200'
+                      }`}
+                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                    />
+                    {validationErrors.nome && (
+                      <p className="text-xs text-red-500 mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        {validationErrors.nome}
+                      </p>
+                    )}
+                  </div>
 
                   <div>
                     <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
@@ -1505,9 +1625,9 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                    {newWorkoutSheet.giorni.length === 0 && (
+                    {validationErrors.giorni && (
                       <p className="text-xs text-red-500 mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                        Seleziona almeno un giorno
+                        {validationErrors.giorni}
                       </p>
                     )}
                   </div>
@@ -1521,9 +1641,16 @@ export default function App() {
                   />
 
                   <div className="border-t border-slate-200 pt-4">
-                    <h4 className="text-sm font-semibold text-slate-700 mb-3" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                      Esercizi
-                    </h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-slate-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Esercizi
+                      </h4>
+                      {validationErrors.esercizi && (
+                        <p className="text-xs text-red-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                          {validationErrors.esercizi}
+                        </p>
+                      )}
+                    </div>
 
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <input
@@ -1595,13 +1722,15 @@ export default function App() {
                       className="px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all"
                       style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                     >
-                      Crea Scheda
+                      {editingWorkoutSheetId ? 'Salva Modifiche' : 'Crea Scheda'}
                     </button>
                     <button
                       onClick={() => {
                         setShowAddWorkoutSheet(false);
                         setNewWorkoutSheet({ nome: '', tipo: 'Palestra', descrizione: '', giorni: [], esercizi: [] });
                         setEditingExercise({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
+                        setEditingWorkoutSheetId(null);
+                        setValidationErrors({});
                       }}
                       className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
                       style={{ fontFamily: "'Source Sans 3', sans-serif" }}
@@ -1617,7 +1746,7 @@ export default function App() {
             {showAddProject && (
               <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                  Aggiungi Nuovo Progetto
+                  {editingProjectId ? 'Modifica Progetto' : 'Aggiungi Nuovo Progetto'}
                 </h3>
                 <div className="space-y-4">
                   <input
@@ -1707,11 +1836,12 @@ export default function App() {
                       className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all"
                       style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                     >
-                      Aggiungi Progetto
+                      {editingProjectId ? 'Salva Modifiche' : 'Aggiungi Progetto'}
                     </button>
                     <button
                       onClick={() => {
                         setShowAddProject(false);
+                        setEditingProjectId(null);
                         setNewProject({
                           title: '',
                           startDate: '',
@@ -1734,7 +1864,9 @@ export default function App() {
             {/* Form Aggiungi Routine */}
             {showAddRoutine && (
               <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>Aggiungi Nuova Routine</h3>
+                <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  {editingRoutineId ? 'Modifica Routine' : 'Aggiungi Nuova Routine'}
+                </h3>
                 <div className="space-y-4">
                   <div className="flex gap-2">
                     <input
@@ -1782,11 +1914,12 @@ export default function App() {
                       className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all"
                       style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                     >
-                      Aggiungi Routine
+                      {editingRoutineId ? 'Salva Modifiche' : 'Aggiungi Routine'}
                     </button>
                     <button
                       onClick={() => {
                         setShowAddRoutine(false);
+                        setEditingRoutineId(null);
                         setNewRoutine({ name: '', days: [], icon: '🏃' });
                       }}
                       className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
@@ -1908,14 +2041,23 @@ export default function App() {
                             </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setProjects(prev => prev.filter(p => p.id !== project.id));
-                          }}
-                          className="text-red-500 hover:text-red-700 p-2"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            onClick={() => startEditProject(project)}
+                            className="text-blue-500 hover:text-blue-700 p-2"
+                            title="Modifica progetto"
+                          >
+                            <Edit2 className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setProjects(prev => prev.filter(p => p.id !== project.id));
+                            }}
+                            className="text-red-500 hover:text-red-700 p-2"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
