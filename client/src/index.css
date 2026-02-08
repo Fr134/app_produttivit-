@@ -7,8 +7,23 @@ body {
   font-family: 'Source Sans 3', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #fafafa 0%, #f0f0f0 100%);
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Libre Baskerville', serif;
+  letter-spacing: -0.02em;
+}
+
+/* Soft hover effect globale */
+button, .clickable {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
 }

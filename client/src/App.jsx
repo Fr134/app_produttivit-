@@ -10,7 +10,7 @@ export default function App() {
   // Data state
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [view, setView] = useState('week'); // week, day, goals
+  const [view, setView] = useState('week'); // week, day, goals, plan
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [dailyTasks, setDailyTasks] = useState({});
   const [projects, setProjects] = useState([]);
@@ -22,6 +22,7 @@ export default function App() {
   });
   const [workoutSheets, setWorkoutSheets] = useState([]);
   const [workoutLogs, setWorkoutLogs] = useState({});
+  const [timeBlocks, setTimeBlocks] = useState({});
   const [selectedWorkoutForDay, setSelectedWorkoutForDay] = useState({});
   const [workoutViewExpanded, setWorkoutViewExpanded] = useState({});
 
@@ -84,7 +85,7 @@ export default function App() {
     }, 2 * 60 * 1000); // 2 minuti
 
     return () => clearInterval(interval);
-  }, [authenticated, projects, dailyTasks, habits, workoutSheets, workoutLogs]);
+  }, [authenticated, projects, dailyTasks, habits, workoutSheets, workoutLogs, timeBlocks]);
 
   // Reload calendar events when date changes
   useEffect(() => {
@@ -182,6 +183,26 @@ export default function App() {
         setWorkoutLogs(logsMap);
       }
 
+      // Load time blocks
+      if (data.timeblocks && data.timeblocks.length > 0) {
+        const blocksMap = {};
+        data.timeblocks.forEach(block => {
+          if (!blocksMap[block.date]) {
+            blocksMap[block.date] = [];
+          }
+          blocksMap[block.date].push({
+            id: block.blockId,
+            startTime: block.startTime,
+            endTime: block.endTime,
+            activityType: block.activityType,
+            activityId: block.activityId,
+            title: block.title,
+            notes: block.notes
+          });
+        });
+        setTimeBlocks(blocksMap);
+      }
+
       setLastSync(new Date());
       console.log('✅ Dati caricati con successo');
     } catch (error) {
@@ -253,7 +274,8 @@ export default function App() {
         routine: habits.customRoutines,
         progresso: progressoArray,
         schede: workoutSheets,
-        allenamenti: allenamentiArray
+        allenamenti: allenamentiArray,
+        timeblocks: timeBlocks
       });
 
       setLastSync(new Date());
@@ -289,6 +311,104 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Time Blocks Management Functions
+  function getTimeBlocksForDate(date) {
+    const dateKey = date.toISOString().split('T')[0];
+    return timeBlocks[dateKey] || [];
+  }
+
+  function saveTimeBlock(date, block) {
+    const dateKey = date.toISOString().split('T')[0];
+    const newBlock = {
+      ...block,
+      id: block.id || Date.now()
+    };
+
+    setTimeBlocks(prev => ({
+      ...prev,
+      [dateKey]: [...(prev[dateKey] || []).filter(b => b.id !== newBlock.id), newBlock]
+    }));
+
+    return newBlock;
+  }
+
+  function deleteTimeBlock(date, blockId) {
+    const dateKey = date.toISOString().split('T')[0];
+    setTimeBlocks(prev => ({
+      ...prev,
+      [dateKey]: (prev[dateKey] || []).filter(b => b.id !== blockId)
+    }));
+  }
+
+  function checkTimeOverlap(date, startTime, endTime, excludeBlockId = null) {
+    const blocks = getTimeBlocksForDate(date);
+    const events = getEventsForDate(date);
+
+    // Convert time strings to minutes for comparison
+    const toMinutes = (timeStr) => {
+      const [hours, mins] = timeStr.split(':').map(Number);
+      return hours * 60 + mins;
+    };
+
+    const newStart = toMinutes(startTime);
+    const newEnd = toMinutes(endTime);
+
+    // Check overlap with existing blocks
+    for (const block of blocks) {
+      if (block.id === excludeBlockId) continue;
+
+      const blockStart = toMinutes(block.startTime);
+      const blockEnd = toMinutes(block.endTime);
+
+      if ((newStart >= blockStart && newStart < blockEnd) ||
+          (newEnd > blockStart && newEnd <= blockEnd) ||
+          (newStart <= blockStart && newEnd >= blockEnd)) {
+        return true;
+      }
+    }
+
+    // Check overlap with calendar events
+    for (const event of events) {
+      const eventStart = event.start.getHours() * 60 + event.start.getMinutes();
+      const eventEnd = event.end.getHours() * 60 + event.end.getMinutes();
+
+      if ((newStart >= eventStart && newStart < eventEnd) ||
+          (newEnd > eventStart && newEnd <= eventEnd) ||
+          (newStart <= eventStart && newEnd >= eventEnd)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function createBlockFromActivity(activityType, activityId, startTime, endTime) {
+    let title = '';
+    let notes = '';
+
+    if (activityType === 'task') {
+      const dateKey = selectedDate.toISOString().split('T')[0];
+      const task = (dailyTasks[dateKey] || []).find(t => t.id === activityId);
+      title = task ? task.text : 'Task';
+    } else if (activityType === 'project') {
+      const project = projects.find(p => p.id === activityId);
+      title = project ? project.title : 'Progetto';
+    } else if (activityType === 'routine') {
+      const routine = habits.customRoutines.find(r => r.id === activityId);
+      title = routine ? `${routine.icon} ${routine.name}` : 'Routine';
+    }
+
+    return {
+      id: Date.now(),
+      startTime,
+      endTime,
+      activityType,
+      activityId,
+      title,
+      notes
+    };
   }
 
   function handleLogout() {
@@ -889,6 +1009,17 @@ export default function App() {
                 Progetti
               </button>
               <button
+                onClick={() => setView('plan')}
+                className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                  view === 'plan'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+              >
+                Piano Giornata
+              </button>
+              <button
                 onClick={saveData}
                 disabled={syncing}
                 className="p-2 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50"
@@ -1379,6 +1510,99 @@ export default function App() {
                       {readingCompleted ? 'Completato! 📚' : 'Da fare'}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Time Blocking Section */}
+              <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-2xl p-6 shadow-sm lg:col-span-3">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                    <Calendar className="w-5 h-5" />
+                    Time Blocking
+                  </h3>
+                </div>
+
+                <div className="bg-white rounded-xl p-4">
+                  {/* Timeline */}
+                  <div className="space-y-1">
+                    {Array.from({ length: 18 }, (_, i) => i + 6).map(hour => {
+                      const timeStr = `${hour.toString().padStart(2, '0')}:00`;
+                      const blocks = getTimeBlocksForDate(selectedDate);
+                      const eventsAtHour = getEventsForDate(selectedDate).filter(event =>
+                        event.start.getHours() === hour
+                      );
+                      const blocksAtHour = blocks.filter(block =>
+                        block.startTime.startsWith(timeStr.slice(0, 2))
+                      );
+
+                      return (
+                        <div key={hour} className="flex items-start gap-3 py-2 border-b border-slate-100">
+                          <div className="w-16 text-sm text-slate-500 font-medium">{timeStr}</div>
+                          <div className="flex-1 space-y-2">
+                            {/* Calendar Events (read-only) */}
+                            {eventsAtHour.map(event => (
+                              <div key={event.id} className="bg-indigo-100 border border-indigo-200 rounded-lg px-3 py-2">
+                                <div className="text-sm font-medium text-indigo-800">📅 {event.title}</div>
+                                <div className="text-xs text-indigo-600">
+                                  {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} -
+                                  {event.end.getHours()}:{event.end.getMinutes().toString().padStart(2, '0')}
+                                </div>
+                              </div>
+                            ))}
+
+                            {/* User Time Blocks */}
+                            {blocksAtHour.map(block => (
+                              <div key={block.id} className="bg-green-100 border border-green-200 rounded-lg px-3 py-2 flex items-center justify-between group">
+                                <div className="flex-1">
+                                  <div className="text-sm font-medium text-green-800">{block.title}</div>
+                                  <div className="text-xs text-green-600">
+                                    {block.startTime} - {block.endTime}
+                                  </div>
+                                  {block.notes && <div className="text-xs text-slate-600 mt-1">{block.notes}</div>}
+                                </div>
+                                <button
+                                  onClick={() => deleteTimeBlock(selectedDate, block.id)}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                                  title="Elimina blocco"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+
+                            {/* Add Block Button */}
+                            {eventsAtHour.length === 0 && blocksAtHour.length === 0 && (
+                              <button
+                                onClick={() => {
+                                  const title = prompt('Titolo attività:');
+                                  if (title) {
+                                    const endHour = hour + 1;
+                                    const newBlock = {
+                                      id: Date.now(),
+                                      startTime: timeStr,
+                                      endTime: `${endHour.toString().padStart(2, '0')}:00`,
+                                      activityType: 'free',
+                                      activityId: '',
+                                      title,
+                                      notes: ''
+                                    };
+                                    saveTimeBlock(selectedDate, newBlock);
+                                  }
+                                }}
+                                className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                              >
+                                + Aggiungi blocco
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-4 text-xs text-slate-500 italic">
+                  💡 Suggerimento: Clicca su "+ Aggiungi blocco" per pianificare un'attività. I blocchi blu sono eventi da Google Calendar (non modificabili).
                 </div>
               </div>
             </div>
@@ -2063,6 +2287,135 @@ export default function App() {
                   );
                 })
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Vista Piano Giornata (Read-Only) */}
+        {view === 'plan' && (
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Piano della Giornata - {formatDateFull(selectedDate)}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(newDate.getDate() - 1);
+                    setSelectedDate(newDate);
+                  }}
+                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  ← Giorno Precedente
+                </button>
+                <button
+                  onClick={() => setSelectedDate(new Date())}
+                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Oggi
+                </button>
+                <button
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(newDate.getDate() + 1);
+                    setSelectedDate(newDate);
+                  }}
+                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Giorno Successivo →
+                </button>
+                <button
+                  onClick={() => setView('day')}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  Modifica
+                </button>
+              </div>
+            </div>
+
+            {/* Timeline Read-Only */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-700 mb-4">Timeline della Giornata</h3>
+
+              <div className="space-y-1">
+                {Array.from({ length: 18 }, (_, i) => i + 6).map(hour => {
+                  const timeStr = `${hour.toString().padStart(2, '0')}:00`;
+                  const blocks = getTimeBlocksForDate(selectedDate);
+                  const eventsAtHour = getEventsForDate(selectedDate).filter(event =>
+                    event.start.getHours() === hour
+                  );
+                  const blocksAtHour = blocks.filter(block =>
+                    block.startTime.startsWith(timeStr.slice(0, 2))
+                  );
+
+                  if (eventsAtHour.length === 0 && blocksAtHour.length === 0) return null;
+
+                  return (
+                    <div key={hour} className="flex items-start gap-3 py-3 border-b border-slate-100">
+                      <div className="w-20 text-base text-slate-700 font-semibold">{timeStr}</div>
+                      <div className="flex-1 space-y-2">
+                        {/* Calendar Events */}
+                        {eventsAtHour.map(event => (
+                          <div key={event.id} className="bg-indigo-50 border-l-4 border-indigo-500 rounded-lg px-4 py-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Calendar className="w-4 h-4 text-indigo-600" />
+                              <div className="font-semibold text-indigo-900">{event.title}</div>
+                            </div>
+                            <div className="text-sm text-indigo-700">
+                              {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} -
+                              {' '}{event.end.getHours()}:{event.end.getMinutes().toString().padStart(2, '0')}
+                            </div>
+                            {event.location && (
+                              <div className="text-sm text-indigo-600 mt-1">📍 {event.location}</div>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* User Time Blocks */}
+                        {blocksAtHour.map(block => (
+                          <div key={block.id} className="bg-green-50 border-l-4 border-green-500 rounded-lg px-4 py-3">
+                            <div className="font-semibold text-green-900">{block.title}</div>
+                            <div className="text-sm text-green-700">
+                              {block.startTime} - {block.endTime}
+                            </div>
+                            {block.notes && (
+                              <div className="text-sm text-slate-600 mt-2 italic">{block.notes}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Unscheduled Items */}
+              {(() => {
+                const dateKey = selectedDate.toISOString().split('T')[0];
+                const tasks = dailyTasks[dateKey] || [];
+                const blocks = getTimeBlocksForDate(selectedDate);
+                const scheduledTaskIds = blocks
+                  .filter(b => b.activityType === 'task')
+                  .map(b => b.activityId);
+                const unscheduledTasks = tasks.filter(t => !scheduledTaskIds.includes(t.id) && !t.completed);
+
+                if (unscheduledTasks.length === 0) return null;
+
+                return (
+                  <div className="mt-6 pt-6 border-t border-slate-200">
+                    <h4 className="text-base font-bold text-slate-700 mb-3">📋 Attività Non Pianificate</h4>
+                    <div className="space-y-2">
+                      {unscheduledTasks.map(task => (
+                        <div key={task.id} className="bg-amber-50 border-l-4 border-amber-400 rounded-lg px-4 py-2">
+                          <div className="text-sm text-amber-900">{task.text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

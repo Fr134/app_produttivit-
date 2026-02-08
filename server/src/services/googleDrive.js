@@ -8,7 +8,9 @@ import {
   parseRoutineCSV,
   routineToCSV,
   parseSchedeCSV,
-  schedeToCSV
+  schedeToCSV,
+  parseTimeBlocksCSV,
+  timeBlocksToCSV
 } from '../utils/csvParser.js';
 
 const FOLDER_NAME = 'Planner';
@@ -20,7 +22,8 @@ const CSV_FILES = {
   routine: 'planner-routine.csv',
   progresso: 'planner-progresso.csv',
   schede: 'planner-schede.csv',
-  allenamenti: 'planner-allenamenti-log.csv'
+  allenamenti: 'planner-allenamenti-log.csv',
+  timeblocks: 'planner-timeblocks.csv'
 };
 
 // Template CSV per file vuoti
@@ -30,7 +33,8 @@ const CSV_TEMPLATES = {
   routine: 'id,name,icon,days\n',
   progresso: 'date,type,projectId,value\n',
   schede: 'id,nome,tipo,descrizione,giorni,esercizi\n',
-  allenamenti: 'date,schedaId,esercizioNome,pesoEseguito,ripetizioniEseguite\n'
+  allenamenti: 'date,schedaId,esercizioNome,pesoEseguito,ripetizioniEseguite\n',
+  timeblocks: 'date,blockId,startTime,endTime,activityType,activityId,title,notes\n'
 };
 
 /**
@@ -214,13 +218,14 @@ export async function loadAllData() {
     const folderId = await getOrCreatePlannerFolder();
 
     // Carica tutti i file in parallelo
-    const [progetti, task, routine, progresso, schede, allenamenti] = await Promise.all([
+    const [progetti, task, routine, progresso, schede, allenamenti, timeblocks] = await Promise.all([
       getOrCreateCSVFile(CSV_FILES.progetti, folderId, CSV_TEMPLATES.progetti),
       getOrCreateCSVFile(CSV_FILES.task, folderId, CSV_TEMPLATES.task),
       getOrCreateCSVFile(CSV_FILES.routine, folderId, CSV_TEMPLATES.routine),
       getOrCreateCSVFile(CSV_FILES.progresso, folderId, CSV_TEMPLATES.progresso),
       getOrCreateCSVFile(CSV_FILES.schede, folderId, CSV_TEMPLATES.schede),
-      getOrCreateCSVFile(CSV_FILES.allenamenti, folderId, CSV_TEMPLATES.allenamenti)
+      getOrCreateCSVFile(CSV_FILES.allenamenti, folderId, CSV_TEMPLATES.allenamenti),
+      getOrCreateCSVFile(CSV_FILES.timeblocks, folderId, CSV_TEMPLATES.timeblocks)
     ]);
 
     // Parse dei CSV
@@ -248,6 +253,10 @@ export async function loadAllData() {
       allenamenti: {
         fileId: allenamenti.fileId,
         data: parseCSV(allenamenti.content)
+      },
+      timeblocks: {
+        fileId: timeblocks.fileId,
+        data: parseTimeBlocksCSV(timeblocks.content)
       }
     };
 
@@ -276,7 +285,8 @@ export async function saveAllData(data) {
       routine: await findCSVFile(CSV_FILES.routine, folderId),
       progresso: await findCSVFile(CSV_FILES.progresso, folderId),
       schede: await findCSVFile(CSV_FILES.schede, folderId),
-      allenamenti: await findCSVFile(CSV_FILES.allenamenti, folderId)
+      allenamenti: await findCSVFile(CSV_FILES.allenamenti, folderId),
+      timeblocks: await findCSVFile(CSV_FILES.timeblocks, folderId)
     };
 
     // Se qualche file non esiste, crealo
@@ -333,6 +343,15 @@ export async function saveAllData(data) {
         updates.push(updateCSVFile(fileIds.allenamenti, csv));
       } else {
         updates.push(createCSVFile(CSV_FILES.allenamenti, csv, folderId));
+      }
+    }
+
+    if (data.timeblocks) {
+      const csv = timeBlocksToCSV(data.timeblocks);
+      if (fileIds.timeblocks) {
+        updates.push(updateCSVFile(fileIds.timeblocks, csv));
+      } else {
+        updates.push(createCSVFile(CSV_FILES.timeblocks, csv, folderId));
       }
     }
 

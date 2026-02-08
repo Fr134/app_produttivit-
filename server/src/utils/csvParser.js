@@ -155,3 +155,38 @@ export function schedeToCSV(schede) {
 
   return toCSV(records, ['id', 'nome', 'tipo', 'descrizione', 'giorni', 'esercizi']);
 }
+
+/**
+ * Parse time blocks CSV (simple structure, no custom conversions needed)
+ */
+export function parseTimeBlocksCSV(csvString) {
+  return parseCSV(csvString);
+}
+
+/**
+ * Convert time blocks object to CSV
+ * Converts from { "2026-02-03": [...blocks] } to flat array
+ */
+export function timeBlocksToCSV(blocksObject) {
+  const flatBlocks = [];
+
+  Object.entries(blocksObject).forEach(([date, blocks]) => {
+    blocks.forEach(block => {
+      flatBlocks.push({
+        date,
+        blockId: block.id,
+        startTime: block.startTime,
+        endTime: block.endTime,
+        activityType: block.activityType,
+        activityId: block.activityId || '',
+        title: block.title,
+        notes: block.notes || ''
+      });
+    });
+  });
+
+  return toCSV(flatBlocks, [
+    'date', 'blockId', 'startTime', 'endTime',
+    'activityType', 'activityId', 'title', 'notes'
+  ]);
+}
