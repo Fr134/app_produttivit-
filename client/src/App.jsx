@@ -47,6 +47,7 @@ export default function App() {
   const [lastSync, setLastSync] = useState(null);
   const [error, setError] = useState(null);
   const [validationErrors, setValidationErrors] = useState({});
+  const [dragOverSlot, setDragOverSlot] = useState(null);
 
   // Edit mode state
   const [editingRoutineId, setEditingRoutineId] = useState(null);
@@ -409,6 +410,78 @@ export default function App() {
       title,
       notes
     };
+  }
+
+  function getAvailableActivityCards(date) {
+    const dateKey = date.toISOString().split('T')[0];
+    const blocks = getTimeBlocksForDate(date);
+    const cards = [];
+
+    // 1. PROJECTS: split hours into 1h blocks + optional remainder
+    const projectsForDay = getProjectsForDate(date);
+    projectsForDay.forEach(project => {
+      const hours = getProjectHoursForDate(project, date);
+      const fullHours = Math.floor(hours);
+      const remainder = +(hours - fullHours).toFixed(1);
+      const placedCount = blocks.filter(b => b.activityType === 'project' && String(b.activityId) === String(project.id)).length;
+      let totalCards = fullHours + (remainder > 0 ? 1 : 0);
+
+      for (let i = placedCount; i < fullHours; i++) {
+        cards.push({ type: 'project', id: project.id, title: project.title, duration: 1, cardIndex: i, color: 'purple' });
+      }
+      if (remainder > 0 && placedCount < totalCards) {
+        cards.push({ type: 'project', id: project.id, title: project.title, duration: remainder, cardIndex: fullHours, color: 'purple' });
+      }
+    });
+
+    // 2. ROUTINES without fixed time (1h default)
+    const routines = getCustomRoutinesForDay(date);
+    routines.forEach(routine => {
+      const alreadyPlaced = blocks.some(b => b.activityType === 'routine' && String(b.activityId) === String(routine.id));
+      if (!alreadyPlaced) {
+        cards.push({ type: 'routine', id: routine.id, title: `${routine.icon} ${routine.name}`, duration: 1, color: 'amber' });
+      }
+    });
+
+    // 3. DAILY TASKS not completed (1h default)
+    const tasks = dailyTasks[dateKey] || [];
+    tasks.filter(t => !t.completed).forEach(task => {
+      const alreadyPlaced = blocks.some(b => b.activityType === 'task' && String(b.activityId) === String(task.id));
+      if (!alreadyPlaced) {
+        cards.push({ type: 'task', id: task.id, title: task.text, duration: 1, color: 'green' });
+      }
+    });
+
+    return cards;
+  }
+
+  function handleTimeBlockDrop(e, hour) {
+    e.preventDefault();
+    setDragOverSlot(null);
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const startTime = `${hour.toString().padStart(2, '0')}:00`;
+      const durationMinutes = data.duration * 60;
+      const endHour = hour + Math.floor(durationMinutes / 60);
+      const endMinute = durationMinutes % 60;
+      const endTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
+
+      if (checkTimeOverlap(selectedDate, startTime, endTime)) {
+        return; // slot occupied
+      }
+
+      saveTimeBlock(selectedDate, {
+        id: Date.now(),
+        startTime,
+        endTime,
+        activityType: data.type,
+        activityId: data.id,
+        title: data.title,
+        notes: ''
+      });
+    } catch (err) {
+      // invalid drag data
+    }
   }
 
   function handleLogout() {
@@ -1409,28 +1482,31 @@ export default function App() {
                               <div className="w-full bg-slate-200 rounded-full h-2">
                                 <div
                                   className="bg-purple-600 h-2 rounded-full transition-all"
-                                  style={{ width: `${(completedHours / plannedHours) * 100}%` }}
+                                  style={{ width: `${Math.min(100, (completedHours / plannedHours) * 100)}%` }}
                                 />
                               </div>
                             </div>
-                            <div className="flex gap-1">
-                              {[...Array(Math.ceil(plannedHours))].map((_, i) => (
-                                <button
-                                  key={i}
-                                  onClick={() => {
-                                    const newCompleted = i + 1 === completedHours ? i : i + 1;
-                                    updateProjectProgress(project.id, selectedDate, newCompleted);
-                                  }}
-                                  className={`w-10 h-10 rounded-lg font-bold transition-all ${
-                                    i < completedHours
-                                      ? 'bg-purple-600 text-white'
-                                      : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
-                                  }`}
-                                  style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-                                >
-                                  {i + 1}
-                                </button>
-                              ))}
+                            <div className="flex gap-1 flex-wrap">
+                              {[...Array(Math.round(plannedHours * 2))].map((_, i) => {
+                                const hourValue = (i + 1) * 0.5;
+                                return (
+                                  <button
+                                    key={i}
+                                    onClick={() => {
+                                      const newCompleted = hourValue === completedHours ? hourValue - 0.5 : hourValue;
+                                      updateProjectProgress(project.id, selectedDate, newCompleted);
+                                    }}
+                                    className={`w-10 h-10 rounded-lg text-xs font-bold transition-all ${
+                                      hourValue <= completedHours
+                                        ? 'bg-purple-600 text-white'
+                                        : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                                    }`}
+                                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                                  >
+                                    {hourValue}h
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
@@ -1522,27 +1598,75 @@ export default function App() {
                   </h3>
                 </div>
 
+                {/* Draggable Activity Cards */}
+                {(() => {
+                  const availableCards = getAvailableActivityCards(selectedDate);
+                  if (availableCards.length > 0) {
+                    const colorMap = {
+                      purple: { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800', label: 'Progetti' },
+                      amber: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800', label: 'Routine' },
+                      green: { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800', label: 'Task' }
+                    };
+                    return (
+                      <div className="mb-4 bg-white rounded-xl p-4 border border-dashed border-slate-300">
+                        <div className="text-sm font-semibold text-slate-600 mb-3">Trascina le attivita negli slot orari:</div>
+                        <div className="flex flex-wrap gap-2">
+                          {availableCards.map((card, idx) => {
+                            const c = colorMap[card.color] || colorMap.green;
+                            return (
+                              <div
+                                key={`${card.type}-${card.id}-${card.cardIndex || idx}`}
+                                draggable="true"
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData('text/plain', JSON.stringify(card));
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                className={`${c.bg} ${c.border} border rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-shadow`}
+                              >
+                                <div className={`text-sm font-medium ${c.text}`}>{card.title}</div>
+                                <div className={`text-xs ${c.text} opacity-70`}>{card.duration}h</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 <div className="bg-white rounded-xl p-4">
-                  {/* Timeline */}
-                  <div className="space-y-1">
+                  {/* Timeline with Drop Zones */}
+                  <div className="space-y-0">
                     {Array.from({ length: 18 }, (_, i) => i + 6).map(hour => {
                       const timeStr = `${hour.toString().padStart(2, '0')}:00`;
                       const blocks = getTimeBlocksForDate(selectedDate);
                       const eventsAtHour = getEventsForDate(selectedDate).filter(event =>
                         event.start.getHours() === hour
                       );
-                      const blocksAtHour = blocks.filter(block =>
-                        block.startTime.startsWith(timeStr.slice(0, 2))
-                      );
+                      const blocksAtHour = blocks.filter(block => {
+                        const blockHour = parseInt(block.startTime.split(':')[0], 10);
+                        return blockHour === hour;
+                      });
+                      const isDropTarget = dragOverSlot === hour;
+                      const hasContent = eventsAtHour.length > 0 || blocksAtHour.length > 0;
 
                       return (
-                        <div key={hour} className="flex items-start gap-3 py-2 border-b border-slate-100">
-                          <div className="w-16 text-sm text-slate-500 font-medium">{timeStr}</div>
-                          <div className="flex-1 space-y-2">
+                        <div
+                          key={hour}
+                          className={`flex items-start gap-3 py-2 border-b border-slate-100 transition-colors ${
+                            isDropTarget ? 'bg-indigo-50 border-indigo-200' : ''
+                          }`}
+                          onDragOver={(e) => { e.preventDefault(); setDragOverSlot(hour); }}
+                          onDragLeave={() => setDragOverSlot(null)}
+                          onDrop={(e) => handleTimeBlockDrop(e, hour)}
+                        >
+                          <div className="w-16 text-sm text-slate-500 font-medium pt-1">{timeStr}</div>
+                          <div className="flex-1 min-h-[2.5rem]">
                             {/* Calendar Events (read-only) */}
                             {eventsAtHour.map(event => (
-                              <div key={event.id} className="bg-indigo-100 border border-indigo-200 rounded-lg px-3 py-2">
-                                <div className="text-sm font-medium text-indigo-800">📅 {event.title}</div>
+                              <div key={event.id} className="bg-indigo-100 border border-indigo-200 rounded-lg px-3 py-2 mb-1">
+                                <div className="text-sm font-medium text-indigo-800">{event.title}</div>
                                 <div className="text-xs text-indigo-600">
                                   {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} -
                                   {event.end.getHours()}:{event.end.getMinutes().toString().padStart(2, '0')}
@@ -1550,49 +1674,38 @@ export default function App() {
                               </div>
                             ))}
 
-                            {/* User Time Blocks */}
-                            {blocksAtHour.map(block => (
-                              <div key={block.id} className="bg-green-100 border border-green-200 rounded-lg px-3 py-2 flex items-center justify-between group">
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-green-800">{block.title}</div>
-                                  <div className="text-xs text-green-600">
-                                    {block.startTime} - {block.endTime}
+                            {/* User Time Blocks (colored by type) */}
+                            {blocksAtHour.map(block => {
+                              const blockColors = {
+                                project: { bg: 'bg-purple-100', border: 'border-purple-200', title: 'text-purple-800', sub: 'text-purple-600' },
+                                routine: { bg: 'bg-amber-100', border: 'border-amber-200', title: 'text-amber-800', sub: 'text-amber-600' },
+                                task: { bg: 'bg-green-100', border: 'border-green-200', title: 'text-green-800', sub: 'text-green-600' }
+                              };
+                              const bc = blockColors[block.activityType] || blockColors.task;
+                              return (
+                                <div key={block.id} className={`${bc.bg} border ${bc.border} rounded-lg px-3 py-2 mb-1 flex items-center justify-between group`}>
+                                  <div className="flex-1">
+                                    <div className={`text-sm font-medium ${bc.title}`}>{block.title}</div>
+                                    <div className={`text-xs ${bc.sub}`}>
+                                      {block.startTime} - {block.endTime}
+                                    </div>
                                   </div>
-                                  {block.notes && <div className="text-xs text-slate-600 mt-1">{block.notes}</div>}
+                                  <button
+                                    onClick={() => deleteTimeBlock(selectedDate, block.id)}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                                    title="Rimuovi blocco"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
                                 </div>
-                                <button
-                                  onClick={() => deleteTimeBlock(selectedDate, block.id)}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
-                                  title="Elimina blocco"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))}
+                              );
+                            })}
 
-                            {/* Add Block Button */}
-                            {eventsAtHour.length === 0 && blocksAtHour.length === 0 && (
-                              <button
-                                onClick={() => {
-                                  const title = prompt('Titolo attività:');
-                                  if (title) {
-                                    const endHour = hour + 1;
-                                    const newBlock = {
-                                      id: Date.now(),
-                                      startTime: timeStr,
-                                      endTime: `${endHour.toString().padStart(2, '0')}:00`,
-                                      activityType: 'free',
-                                      activityId: '',
-                                      title,
-                                      notes: ''
-                                    };
-                                    saveTimeBlock(selectedDate, newBlock);
-                                  }
-                                }}
-                                className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                              >
-                                + Aggiungi blocco
-                              </button>
+                            {/* Empty slot indicator during drag */}
+                            {!hasContent && isDropTarget && (
+                              <div className="border-2 border-dashed border-indigo-300 rounded-lg px-3 py-2 text-sm text-indigo-400 text-center">
+                                Rilascia qui
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1602,7 +1715,7 @@ export default function App() {
                 </div>
 
                 <div className="mt-4 text-xs text-slate-500 italic">
-                  💡 Suggerimento: Clicca su "+ Aggiungi blocco" per pianificare un'attività. I blocchi blu sono eventi da Google Calendar (non modificabili).
+                  Trascina le caselle delle attivita negli slot orari per pianificare la giornata. I blocchi blu sono eventi da Google Calendar (non modificabili). Passa sopra un blocco per rimuoverlo.
                 </div>
               </div>
             </div>
@@ -2373,18 +2486,26 @@ export default function App() {
                           </div>
                         ))}
 
-                        {/* User Time Blocks */}
-                        {blocksAtHour.map(block => (
-                          <div key={block.id} className="bg-green-50 border-l-4 border-green-500 rounded-lg px-4 py-3">
-                            <div className="font-semibold text-green-900">{block.title}</div>
-                            <div className="text-sm text-green-700">
-                              {block.startTime} - {block.endTime}
+                        {/* User Time Blocks (colored by type) */}
+                        {blocksAtHour.map(block => {
+                          const planColors = {
+                            project: { bg: 'bg-purple-50', border: 'border-purple-500', title: 'text-purple-900', sub: 'text-purple-700' },
+                            routine: { bg: 'bg-amber-50', border: 'border-amber-500', title: 'text-amber-900', sub: 'text-amber-700' },
+                            task: { bg: 'bg-green-50', border: 'border-green-500', title: 'text-green-900', sub: 'text-green-700' }
+                          };
+                          const pc = planColors[block.activityType] || planColors.task;
+                          return (
+                            <div key={block.id} className={`${pc.bg} border-l-4 ${pc.border} rounded-lg px-4 py-3`}>
+                              <div className={`font-semibold ${pc.title}`}>{block.title}</div>
+                              <div className={`text-sm ${pc.sub}`}>
+                                {block.startTime} - {block.endTime}
+                              </div>
+                              {block.notes && (
+                                <div className="text-sm text-slate-600 mt-2 italic">{block.notes}</div>
+                              )}
                             </div>
-                            {block.notes && (
-                              <div className="text-sm text-slate-600 mt-2 italic">{block.notes}</div>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
