@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, CheckSquare, Target, Book, Dumbbell, Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, LogOut, RefreshCw, Edit2 } from 'lucide-react';
+import { Calendar, CheckSquare, Target, Book, Dumbbell, Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, LogOut, RefreshCw, Edit2, Clock } from 'lucide-react';
 import * as api from './services/api';
 
 export default function App() {
@@ -48,6 +48,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [validationErrors, setValidationErrors] = useState({});
   const [dragOverSlot, setDragOverSlot] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Edit mode state
   const [editingRoutineId, setEditingRoutineId] = useState(null);
@@ -448,36 +449,45 @@ export default function App() {
     tasks.filter(t => !t.completed).forEach(task => {
       const alreadyPlaced = blocks.some(b => b.activityType === 'task' && String(b.activityId) === String(task.id));
       if (!alreadyPlaced) {
-        cards.push({ type: 'task', id: task.id, title: task.text, duration: 1, color: 'green' });
+        cards.push({ type: 'task', id: task.id, title: task.text, duration: 0.5, color: 'green' });
       }
     });
 
     return cards;
   }
 
-  function handleTimeBlockDrop(e, hour) {
+  function handleTimeBlockDrop(e, slotTime) {
     e.preventDefault();
     setDragOverSlot(null);
+    setIsDragging(false);
     try {
       const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-      const startTime = `${hour.toString().padStart(2, '0')}:00`;
+      const [startH, startM] = slotTime.split(':').map(Number);
+      const startMinutes = startH * 60 + startM;
       const durationMinutes = data.duration * 60;
-      const endHour = hour + Math.floor(durationMinutes / 60);
-      const endMinute = durationMinutes % 60;
-      const endTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
+      const endMinutes = startMinutes + durationMinutes;
+      if (endMinutes > 23 * 60) return;
+      const endH = Math.floor(endMinutes / 60);
+      const endM = endMinutes % 60;
+      const endTime = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
 
-      if (checkTimeOverlap(selectedDate, startTime, endTime)) {
-        return; // slot occupied
+      const excludeId = data.existingBlockId || null;
+      if (checkTimeOverlap(selectedDate, slotTime, endTime, excludeId)) {
+        return;
+      }
+
+      if (data.existingBlockId) {
+        deleteTimeBlock(selectedDate, data.existingBlockId);
       }
 
       saveTimeBlock(selectedDate, {
         id: Date.now(),
-        startTime,
+        startTime: slotTime,
         endTime,
         activityType: data.type,
         activityId: data.id,
         title: data.title,
-        notes: ''
+        notes: data.notes || ''
       });
     } catch (err) {
       // invalid drag data
@@ -1593,7 +1603,7 @@ export default function App() {
               <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-2xl p-6 shadow-sm lg:col-span-3">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                    <Calendar className="w-5 h-5" />
+                    <Clock className="w-5 h-5" />
                     Time Blocking
                   </h3>
                 </div>
@@ -1601,121 +1611,209 @@ export default function App() {
                 {/* Draggable Activity Cards */}
                 {(() => {
                   const availableCards = getAvailableActivityCards(selectedDate);
-                  if (availableCards.length > 0) {
-                    const colorMap = {
-                      purple: { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800', label: 'Progetti' },
-                      amber: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800', label: 'Routine' },
-                      green: { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800', label: 'Task' }
-                    };
-                    return (
-                      <div className="mb-4 bg-white rounded-xl p-4 border border-dashed border-slate-300">
-                        <div className="text-sm font-semibold text-slate-600 mb-3">Trascina le attivita negli slot orari:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {availableCards.map((card, idx) => {
-                            const c = colorMap[card.color] || colorMap.green;
+                  const colorMap = {
+                    purple: { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', dot: 'bg-purple-500', label: 'Progetti' },
+                    amber: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Routine' },
+                    green: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Task' }
+                  };
+                  return (
+                    <div className="mb-4 bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                        Attività da pianificare
+                      </div>
+                      {availableCards.length === 0 ? (
+                        <div className="text-sm text-slate-400 italic py-2">Tutte le attività sono state pianificate!</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {['purple', 'amber', 'green'].map(colorKey => {
+                            const cardsOfType = availableCards.filter(c => c.color === colorKey);
+                            if (cardsOfType.length === 0) return null;
+                            const c = colorMap[colorKey];
                             return (
-                              <div
-                                key={`${card.type}-${card.id}-${card.cardIndex || idx}`}
-                                draggable="true"
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData('text/plain', JSON.stringify(card));
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                className={`${c.bg} ${c.border} border rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-shadow`}
-                              >
-                                <div className={`text-sm font-medium ${c.text}`}>{card.title}</div>
-                                <div className={`text-xs ${c.text} opacity-70`}>{card.duration}h</div>
+                              <div key={colorKey}>
+                                <div className="flex items-center gap-1.5 mb-1.5">
+                                  <div className={`w-2 h-2 rounded-full ${c.dot}`} />
+                                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{c.label}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {cardsOfType.map((card, idx) => (
+                                    <div
+                                      key={`${card.type}-${card.id}-${card.cardIndex || idx}`}
+                                      draggable="true"
+                                      onDragStart={(e) => {
+                                        e.dataTransfer.setData('text/plain', JSON.stringify(card));
+                                        e.dataTransfer.effectAllowed = 'move';
+                                        setIsDragging(true);
+                                      }}
+                                      onDragEnd={() => { setIsDragging(false); setDragOverSlot(null); }}
+                                      className={`${c.bg} ${c.border} border rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all hover:scale-105`}
+                                    >
+                                      <div className={`text-sm font-medium ${c.text}`}>{card.title}</div>
+                                      <div className={`text-[11px] ${c.text} opacity-60`}>
+                                        {card.duration >= 1 ? `${card.duration}h` : `${card.duration * 60}min`}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             );
                           })}
                         </div>
-                      </div>
-                    );
-                  }
-                  return null;
+                      )}
+                    </div>
+                  );
                 })()}
 
-                <div className="bg-white rounded-xl p-4">
-                  {/* Timeline with Drop Zones */}
-                  <div className="space-y-0">
-                    {Array.from({ length: 18 }, (_, i) => i + 6).map(hour => {
-                      const timeStr = `${hour.toString().padStart(2, '0')}:00`;
-                      const blocks = getTimeBlocksForDate(selectedDate);
-                      const eventsAtHour = getEventsForDate(selectedDate).filter(event =>
-                        event.start.getHours() === hour
-                      );
-                      const blocksAtHour = blocks.filter(block => {
-                        const blockHour = parseInt(block.startTime.split(':')[0], 10);
-                        return blockHour === hour;
-                      });
-                      const isDropTarget = dragOverSlot === hour;
-                      const hasContent = eventsAtHour.length > 0 || blocksAtHour.length > 0;
-
-                      return (
-                        <div
-                          key={hour}
-                          className={`flex items-start gap-3 py-2 border-b border-slate-100 transition-colors ${
-                            isDropTarget ? 'bg-indigo-50 border-indigo-200' : ''
-                          }`}
-                          onDragOver={(e) => { e.preventDefault(); setDragOverSlot(hour); }}
-                          onDragLeave={() => setDragOverSlot(null)}
-                          onDrop={(e) => handleTimeBlockDrop(e, hour)}
-                        >
-                          <div className="w-16 text-sm text-slate-500 font-medium pt-1">{timeStr}</div>
-                          <div className="flex-1 min-h-[2.5rem]">
-                            {/* Calendar Events (read-only) */}
-                            {eventsAtHour.map(event => (
-                              <div key={event.id} className="bg-indigo-100 border border-indigo-200 rounded-lg px-3 py-2 mb-1">
-                                <div className="text-sm font-medium text-indigo-800">{event.title}</div>
-                                <div className="text-xs text-indigo-600">
-                                  {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} -
-                                  {event.end.getHours()}:{event.end.getMinutes().toString().padStart(2, '0')}
-                                </div>
-                              </div>
-                            ))}
-
-                            {/* User Time Blocks (colored by type) */}
-                            {blocksAtHour.map(block => {
-                              const blockColors = {
-                                project: { bg: 'bg-purple-100', border: 'border-purple-200', title: 'text-purple-800', sub: 'text-purple-600' },
-                                routine: { bg: 'bg-amber-100', border: 'border-amber-200', title: 'text-amber-800', sub: 'text-amber-600' },
-                                task: { bg: 'bg-green-100', border: 'border-green-200', title: 'text-green-800', sub: 'text-green-600' }
-                              };
-                              const bc = blockColors[block.activityType] || blockColors.task;
-                              return (
-                                <div key={block.id} className={`${bc.bg} border ${bc.border} rounded-lg px-3 py-2 mb-1 flex items-center justify-between group`}>
-                                  <div className="flex-1">
-                                    <div className={`text-sm font-medium ${bc.title}`}>{block.title}</div>
-                                    <div className={`text-xs ${bc.sub}`}>
-                                      {block.startTime} - {block.endTime}
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={() => deleteTimeBlock(selectedDate, block.id)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
-                                    title="Rimuovi blocco"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              );
-                            })}
-
-                            {/* Empty slot indicator during drag */}
-                            {!hasContent && isDropTarget && (
-                              <div className="border-2 border-dashed border-indigo-300 rounded-lg px-3 py-2 text-sm text-indigo-400 text-center">
-                                Rilascia qui
-                              </div>
+                {/* Timeline - 30min slots with calendar-style layout */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                  <div className="flex">
+                    {/* Time labels column */}
+                    <div className="w-14 flex-shrink-0 bg-slate-50/50">
+                      {Array.from({ length: 34 }, (_, i) => {
+                        const h = 6 + Math.floor(i / 2);
+                        const m = (i % 2) * 30;
+                        return (
+                          <div key={i} style={{ height: '40px' }} className="flex items-start justify-end pr-2 pt-0.5">
+                            {m === 0 && (
+                              <span className="text-[11px] font-medium text-slate-400">{`${h.toString().padStart(2, '0')}:00`}</span>
                             )}
                           </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Timeline content area */}
+                    <div className="flex-1 relative" style={{ height: `${34 * 40}px` }}>
+                      {/* Grid lines */}
+                      {Array.from({ length: 34 }, (_, i) => {
+                        const m = (i % 2) * 30;
+                        return (
+                          <div
+                            key={`grid-${i}`}
+                            className={`absolute w-full border-t ${m === 0 ? 'border-slate-200' : 'border-slate-100 border-dashed'}`}
+                            style={{ top: `${i * 40}px`, height: '40px' }}
+                          />
+                        );
+                      })}
+
+                      {/* Calendar Events (absolute positioned) */}
+                      {getEventsForDate(selectedDate).map(event => {
+                        const startMin = event.start.getHours() * 60 + event.start.getMinutes();
+                        const endMin = event.end.getHours() * 60 + event.end.getMinutes();
+                        const topOffset = ((startMin - 360) / 30) * 40;
+                        const blockHeight = ((endMin - startMin) / 30) * 40;
+                        if (startMin < 360 || startMin >= 1380) return null;
+                        return (
+                          <div
+                            key={`cal-${event.id}`}
+                            className="absolute left-1 right-2 rounded-lg overflow-hidden z-10 flex"
+                            style={{ top: `${topOffset + 1}px`, height: `${Math.max(blockHeight - 2, 24)}px`, background: 'linear-gradient(135deg, #dbeafe, #eff6ff)' }}
+                          >
+                            <div className="w-1 bg-blue-500 flex-shrink-0" />
+                            <div className="flex-1 px-2 py-1 min-w-0">
+                              <div className="text-xs font-semibold text-blue-800 truncate">{event.title}</div>
+                              {blockHeight > 30 && (
+                                <div className="text-[10px] text-blue-600">
+                                  {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} - {event.end.getHours()}:{event.end.getMinutes().toString().padStart(2, '0')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* User Time Blocks (absolute positioned, draggable for repositioning) */}
+                      {getTimeBlocksForDate(selectedDate).map(block => {
+                        const [sH, sM] = block.startTime.split(':').map(Number);
+                        const [eH, eM] = block.endTime.split(':').map(Number);
+                        const startMin = sH * 60 + sM;
+                        const endMin = eH * 60 + eM;
+                        const topOffset = ((startMin - 360) / 30) * 40;
+                        const blockHeight = ((endMin - startMin) / 30) * 40;
+                        const blockColors = {
+                          project: { bg: 'linear-gradient(135deg, #f3e8ff, #faf5ff)', border: 'border-purple-200', text: 'text-purple-800', accent: 'bg-purple-500', sub: 'text-purple-600' },
+                          routine: { bg: 'linear-gradient(135deg, #fef3c7, #fffbeb)', border: 'border-amber-200', text: 'text-amber-800', accent: 'bg-amber-500', sub: 'text-amber-600' },
+                          task: { bg: 'linear-gradient(135deg, #d1fae5, #ecfdf5)', border: 'border-emerald-200', text: 'text-emerald-800', accent: 'bg-emerald-500', sub: 'text-emerald-600' }
+                        };
+                        const bc = blockColors[block.activityType] || blockColors.task;
+                        return (
+                          <div
+                            key={block.id}
+                            className={`absolute left-1 right-2 border ${bc.border} rounded-lg overflow-hidden cursor-grab active:cursor-grabbing group z-10 flex shadow-sm hover:shadow-md transition-shadow`}
+                            style={{ top: `${topOffset + 1}px`, height: `${Math.max(blockHeight - 2, 24)}px`, background: bc.bg }}
+                            draggable="true"
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('text/plain', JSON.stringify({
+                                type: block.activityType,
+                                id: block.activityId,
+                                title: block.title,
+                                duration: (endMin - startMin) / 60,
+                                existingBlockId: block.id,
+                                notes: block.notes
+                              }));
+                              e.dataTransfer.effectAllowed = 'move';
+                              setIsDragging(true);
+                            }}
+                            onDragEnd={() => { setIsDragging(false); setDragOverSlot(null); }}
+                          >
+                            <div className={`w-1 ${bc.accent} flex-shrink-0`} />
+                            <div className="flex-1 px-2 py-1 min-w-0">
+                              <div className={`text-xs font-semibold ${bc.text} truncate`}>{block.title}</div>
+                              {blockHeight > 30 && (
+                                <div className={`text-[10px] ${bc.sub} opacity-70`}>
+                                  {block.startTime} - {block.endTime}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteTimeBlock(selectedDate, block.id); }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 text-red-400 hover:text-red-600 flex-shrink-0 self-center"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+
+                      {/* Drop zone overlay (only visible during drag - captures all drag events) */}
+                      {isDragging && (
+                        <div className="absolute inset-0 z-20">
+                          {Array.from({ length: 34 }, (_, i) => {
+                            const h = 6 + Math.floor(i / 2);
+                            const m = (i % 2) * 30;
+                            const slotTime = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                            const isTarget = dragOverSlot === slotTime;
+                            return (
+                              <div
+                                key={`drop-${i}`}
+                                className={`transition-colors ${isTarget ? 'bg-indigo-100/60' : ''}`}
+                                style={{ height: '40px' }}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = 'move';
+                                  if (dragOverSlot !== slotTime) setDragOverSlot(slotTime);
+                                }}
+                                onDragLeave={(e) => {
+                                  if (!e.currentTarget.contains(e.relatedTarget)) setDragOverSlot(null);
+                                }}
+                                onDrop={(e) => handleTimeBlockDrop(e, slotTime)}
+                              >
+                                {isTarget && (
+                                  <div className="h-full flex items-center justify-center text-xs text-indigo-500 font-medium pointer-events-none">
+                                    Rilascia qui
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-4 text-xs text-slate-500 italic">
-                  Trascina le caselle delle attivita negli slot orari per pianificare la giornata. I blocchi blu sono eventi da Google Calendar (non modificabili). Passa sopra un blocco per rimuoverlo.
+                <div className="mt-3 text-xs text-slate-400 italic">
+                  Trascina le attività negli slot per pianificare. Puoi spostare i blocchi già posizionati trascinandoli in un nuovo orario.
                 </div>
               </div>
             </div>
@@ -2450,67 +2548,69 @@ export default function App() {
 
             {/* Timeline Read-Only */}
             <div className="bg-white rounded-2xl p-6 shadow-sm">
-              <h3 className="text-lg font-bold text-slate-700 mb-4">Timeline della Giornata</h3>
+              <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Timeline della Giornata
+              </h3>
 
-              <div className="space-y-1">
-                {Array.from({ length: 18 }, (_, i) => i + 6).map(hour => {
-                  const timeStr = `${hour.toString().padStart(2, '0')}:00`;
-                  const blocks = getTimeBlocksForDate(selectedDate);
-                  const eventsAtHour = getEventsForDate(selectedDate).filter(event =>
-                    event.start.getHours() === hour
-                  );
-                  const blocksAtHour = blocks.filter(block =>
-                    block.startTime.startsWith(timeStr.slice(0, 2))
-                  );
+              {(() => {
+                const blocks = getTimeBlocksForDate(selectedDate);
+                const events = getEventsForDate(selectedDate);
+                const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
-                  if (eventsAtHour.length === 0 && blocksAtHour.length === 0) return null;
+                const allItems = [
+                  ...events.map(e => ({
+                    type: 'calendar',
+                    id: `cal-${e.id}`,
+                    title: e.title,
+                    startTime: `${e.start.getHours().toString().padStart(2, '0')}:${e.start.getMinutes().toString().padStart(2, '0')}`,
+                    endTime: `${e.end.getHours().toString().padStart(2, '0')}:${e.end.getMinutes().toString().padStart(2, '0')}`,
+                    location: e.location
+                  })),
+                  ...blocks.map(b => ({
+                    type: b.activityType,
+                    id: b.id,
+                    title: b.title,
+                    startTime: b.startTime,
+                    endTime: b.endTime,
+                    notes: b.notes
+                  }))
+                ].sort((a, b) => toMin(a.startTime) - toMin(b.startTime));
 
-                  return (
-                    <div key={hour} className="flex items-start gap-3 py-3 border-b border-slate-100">
-                      <div className="w-20 text-base text-slate-700 font-semibold">{timeStr}</div>
-                      <div className="flex-1 space-y-2">
-                        {/* Calendar Events */}
-                        {eventsAtHour.map(event => (
-                          <div key={event.id} className="bg-indigo-50 border-l-4 border-indigo-500 rounded-lg px-4 py-3">
-                            <div className="flex items-center gap-2 mb-1">
-                              <Calendar className="w-4 h-4 text-indigo-600" />
-                              <div className="font-semibold text-indigo-900">{event.title}</div>
-                            </div>
-                            <div className="text-sm text-indigo-700">
-                              {event.start.getHours()}:{event.start.getMinutes().toString().padStart(2, '0')} -
-                              {' '}{event.end.getHours()}:{event.end.getMinutes().toString().padStart(2, '0')}
-                            </div>
-                            {event.location && (
-                              <div className="text-sm text-indigo-600 mt-1">📍 {event.location}</div>
-                            )}
-                          </div>
-                        ))}
+                const planColors = {
+                  calendar: { bg: 'bg-blue-50', accent: 'bg-blue-400', title: 'text-blue-900', sub: 'text-blue-700' },
+                  project: { bg: 'bg-purple-50', accent: 'bg-purple-400', title: 'text-purple-900', sub: 'text-purple-700' },
+                  routine: { bg: 'bg-amber-50', accent: 'bg-amber-400', title: 'text-amber-900', sub: 'text-amber-700' },
+                  task: { bg: 'bg-emerald-50', accent: 'bg-emerald-400', title: 'text-emerald-900', sub: 'text-emerald-700' }
+                };
 
-                        {/* User Time Blocks (colored by type) */}
-                        {blocksAtHour.map(block => {
-                          const planColors = {
-                            project: { bg: 'bg-purple-50', border: 'border-purple-500', title: 'text-purple-900', sub: 'text-purple-700' },
-                            routine: { bg: 'bg-amber-50', border: 'border-amber-500', title: 'text-amber-900', sub: 'text-amber-700' },
-                            task: { bg: 'bg-green-50', border: 'border-green-500', title: 'text-green-900', sub: 'text-green-700' }
-                          };
-                          const pc = planColors[block.activityType] || planColors.task;
-                          return (
-                            <div key={block.id} className={`${pc.bg} border-l-4 ${pc.border} rounded-lg px-4 py-3`}>
-                              <div className={`font-semibold ${pc.title}`}>{block.title}</div>
-                              <div className={`text-sm ${pc.sub}`}>
-                                {block.startTime} - {block.endTime}
+                if (allItems.length === 0) {
+                  return <div className="text-slate-400 text-center py-8 italic">Nessuna attività pianificata per oggi</div>;
+                }
+
+                return (
+                  <div className="space-y-2">
+                    {allItems.map(item => {
+                      const pc = planColors[item.type] || planColors.task;
+                      return (
+                        <div key={item.id} className={`${pc.bg} rounded-xl overflow-hidden flex`}>
+                          <div className={`w-1.5 ${pc.accent} flex-shrink-0`} />
+                          <div className="flex-1 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className={`text-sm font-semibold ${pc.sub} w-28 flex-shrink-0`}>
+                                {item.startTime} - {item.endTime}
                               </div>
-                              {block.notes && (
-                                <div className="text-sm text-slate-600 mt-2 italic">{block.notes}</div>
-                              )}
+                              <div className={`font-semibold ${pc.title}`}>{item.title}</div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                            {item.location && <div className="text-sm text-blue-600 mt-1 ml-[7.75rem]">📍 {item.location}</div>}
+                            {item.notes && <div className="text-sm text-slate-600 mt-1 ml-[7.75rem] italic">{item.notes}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* Unscheduled Items */}
               {(() => {
@@ -2529,8 +2629,11 @@ export default function App() {
                     <h4 className="text-base font-bold text-slate-700 mb-3">📋 Attività Non Pianificate</h4>
                     <div className="space-y-2">
                       {unscheduledTasks.map(task => (
-                        <div key={task.id} className="bg-amber-50 border-l-4 border-amber-400 rounded-lg px-4 py-2">
-                          <div className="text-sm text-amber-900">{task.text}</div>
+                        <div key={task.id} className="bg-amber-50 rounded-xl overflow-hidden flex">
+                          <div className="w-1.5 bg-amber-400 flex-shrink-0" />
+                          <div className="px-4 py-2">
+                            <div className="text-sm text-amber-900">{task.text}</div>
+                          </div>
                         </div>
                       ))}
                     </div>
