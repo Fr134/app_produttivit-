@@ -1643,7 +1643,7 @@ export default function App() {
                                       onDragStart={(e) => {
                                         e.dataTransfer.setData('text/plain', JSON.stringify(card));
                                         e.dataTransfer.effectAllowed = 'move';
-                                        setIsDragging(true);
+                                        setTimeout(() => setIsDragging(true), 0);
                                       }}
                                       onDragEnd={() => { setIsDragging(false); setDragOverSlot(null); }}
                                       className={`${c.bg} ${c.border} border rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all hover:scale-105`}
@@ -1752,7 +1752,7 @@ export default function App() {
                                 notes: block.notes
                               }));
                               e.dataTransfer.effectAllowed = 'move';
-                              setIsDragging(true);
+                              setTimeout(() => setIsDragging(true), 0);
                             }}
                             onDragEnd={() => { setIsDragging(false); setDragOverSlot(null); }}
                           >
