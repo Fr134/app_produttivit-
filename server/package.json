@@ -1,7 +1,7 @@
 {
   "name": "planning-app-server",
   "version": "1.0.0",
-  "description": "Backend Node.js per Planning App con integrazione Google Calendar e Drive",
+  "description": "Backend Node.js per Planning App con Google Calendar e PostgreSQL",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "planning",
     "calendar",
     "google-calendar",
-    "google-drive",
+    "postgresql",
     "oauth2"
   ],
   "author": "Francesco Daddi <francesc.daddi@gmail.com>",
@@ -25,8 +25,6 @@
     "googleapis": "^128.0.0",
     "express-session": "^1.17.3",
     "cookie-parser": "^1.4.6",
-    "csv-parse": "^5.5.2",
-    "csv-stringify": "^6.4.4",
     "pg": "^8.13.1"
   },
   "devDependencies": {

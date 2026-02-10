@@ -4,10 +4,9 @@ import { saveTokens, loadTokens, deleteTokens, hasTokens } from '../utils/tokenS
 
 const router = express.Router();
 
-// Scopes richiesti per Google Calendar (readonly) e Drive (file management)
+// Scopes richiesti per Google Calendar (readonly)
 const SCOPES = [
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/drive.file'
+  'https://www.googleapis.com/auth/calendar.readonly'
 ];
 
 /**
