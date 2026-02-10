@@ -587,6 +587,14 @@ export default function App() {
     }));
   };
 
+  const deleteTask = (date, taskId) => {
+    const dateKey = date.toISOString().split('T')[0];
+    setDailyTasks(prev => ({
+      ...prev,
+      [dateKey]: (prev[dateKey] || []).filter(task => task.id !== taskId)
+    }));
+  };
+
   const toggleReadingHabit = (date) => {
     const dateKey = date.toISOString().split('T')[0];
     setHabits(prev => ({
@@ -1573,17 +1581,29 @@ export default function App() {
                     tasksForDate.map(task => (
                       <div
                         key={task.id}
-                        onClick={() => toggleTask(selectedDate, task.id)}
-                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-all"
+                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all group"
                       >
-                        <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center ${
-                          task.completed ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
-                        }`}>
+                        <div
+                          onClick={() => toggleTask(selectedDate, task.id)}
+                          className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center cursor-pointer flex-shrink-0 ${
+                            task.completed ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'
+                          }`}
+                        >
                           {task.completed && <Check className="w-3 h-3 text-white" />}
                         </div>
-                        <span className={`flex-1 ${task.completed ? 'line-through text-slate-400' : 'text-slate-700'}`} style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        <span
+                          onClick={() => toggleTask(selectedDate, task.id)}
+                          className={`flex-1 cursor-pointer ${task.completed ? 'line-through text-slate-400' : 'text-slate-700'}`}
+                          style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                        >
                           {task.text}
                         </span>
+                        <button
+                          onClick={() => deleteTask(selectedDate, task.id)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600 flex-shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     ))
                   )}
