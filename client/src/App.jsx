@@ -270,6 +270,23 @@ export default function App() {
         });
       });
 
+      // Convert timeBlocks map to flat array
+      const timeBlocksArray = [];
+      Object.entries(timeBlocks).forEach(([date, blocks]) => {
+        blocks.forEach(block => {
+          timeBlocksArray.push({
+            date,
+            blockId: block.id,
+            startTime: block.startTime,
+            endTime: block.endTime,
+            activityType: block.activityType,
+            activityId: block.activityId,
+            title: block.title,
+            notes: block.notes || ''
+          });
+        });
+      });
+
       await api.saveAllData({
         progetti: projects,
         task: taskArray,
@@ -277,11 +294,11 @@ export default function App() {
         progresso: progressoArray,
         schede: workoutSheets,
         allenamenti: allenamentiArray,
-        timeblocks: timeBlocks
+        timeblocks: timeBlocksArray
       });
 
       setLastSync(new Date());
-      console.log('✅ Dati salvati su Drive');
+      console.log('✅ Dati salvati nel database');
     } catch (error) {
       console.error('Error saving data:', error);
       setError('Errore nel salvataggio: ' + error.message);

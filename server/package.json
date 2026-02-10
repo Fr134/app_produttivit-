@@ -26,7 +26,8 @@
     "express-session": "^1.17.3",
     "cookie-parser": "^1.4.6",
     "csv-parse": "^5.5.2",
-    "csv-stringify": "^6.4.4"
+    "csv-stringify": "^6.4.4",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

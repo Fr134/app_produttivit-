@@ -1,37 +1,35 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { loadAllData, saveAllData } from '../services/googleDrive.js';
+import pool from '../utils/db.js';
 
 const router = express.Router();
 
-// Tutti gli endpoint drive richiedono autenticazione
 router.use(requireAuth);
+
+const VALID_KEYS = ['progetti', 'task', 'routine', 'progresso', 'schede', 'allenamenti', 'timeblocks'];
 
 /**
  * GET /api/drive/data
- * Carica tutti i dati dai CSV su Google Drive
+ * Carica tutti i dati dal database PostgreSQL
  */
 router.get('/data', async (req, res) => {
   try {
-    const data = await loadAllData();
+    const result = await pool.query(
+      'SELECT key, data FROM app_data WHERE key = ANY($1)',
+      [VALID_KEYS]
+    );
 
-    // Rimuovi i fileId dalla risposta (info interna)
-    const response = {
-      progetti: data.progetti.data,
-      task: data.task.data,
-      routine: data.routine.data,
-      progresso: data.progresso.data,
-      schede: data.schede.data,
-      allenamenti: data.allenamenti.data
-    };
+    const data = {};
+    VALID_KEYS.forEach(key => { data[key] = []; });
+    result.rows.forEach(row => { data[row.key] = row.data; });
 
     res.json({
       success: true,
-      data: response,
+      data,
       loadedAt: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error loading data from Drive:', error);
+    console.error('Error loading data from DB:', error);
     res.status(500).json({
       error: 'Errore nel caricamento dei dati',
       message: error.message
@@ -41,96 +39,45 @@ router.get('/data', async (req, res) => {
 
 /**
  * POST /api/drive/save
- * Salva i dati sui CSV su Google Drive
- *
- * Body: { progetti, task, routine, progresso, schede, allenamenti }
- * Puoi inviare solo i dati che vuoi aggiornare
+ * Salva i dati nel database PostgreSQL
  */
 router.post('/save', async (req, res) => {
   try {
-    const { progetti, task, routine, progresso, schede, allenamenti } = req.body;
+    const savedKeys = [];
 
-    // Validazione: almeno un campo deve essere presente
-    if (!progetti && !task && !routine && !progresso && !schede && !allenamenti) {
+    for (const key of VALID_KEYS) {
+      if (req.body[key] !== undefined && req.body[key] !== null) {
+        if (!Array.isArray(req.body[key])) {
+          return res.status(400).json({
+            error: 'Formato non valido',
+            message: `${key} deve essere un array`
+          });
+        }
+
+        await pool.query(
+          `INSERT INTO app_data (key, data, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET data = $2, updated_at = NOW()`,
+          [key, JSON.stringify(req.body[key])]
+        );
+        savedKeys.push(key);
+      }
+    }
+
+    if (savedKeys.length === 0) {
       return res.status(400).json({
         error: 'Nessun dato da salvare',
-        message: 'Devi fornire almeno uno tra: progetti, task, routine, progresso, schede, allenamenti'
+        message: 'Devi fornire almeno uno tra: ' + VALID_KEYS.join(', ')
       });
     }
-
-    // Prepara i dati da salvare
-    const dataToSave = {};
-
-    if (progetti) {
-      if (!Array.isArray(progetti)) {
-        return res.status(400).json({
-          error: 'Formato non valido',
-          message: 'progetti deve essere un array'
-        });
-      }
-      dataToSave.progetti = progetti;
-    }
-
-    if (task) {
-      if (!Array.isArray(task)) {
-        return res.status(400).json({
-          error: 'Formato non valido',
-          message: 'task deve essere un array'
-        });
-      }
-      dataToSave.task = task;
-    }
-
-    if (routine) {
-      if (!Array.isArray(routine)) {
-        return res.status(400).json({
-          error: 'Formato non valido',
-          message: 'routine deve essere un array'
-        });
-      }
-      dataToSave.routine = routine;
-    }
-
-    if (progresso) {
-      if (!Array.isArray(progresso)) {
-        return res.status(400).json({
-          error: 'Formato non valido',
-          message: 'progresso deve essere un array'
-        });
-      }
-      dataToSave.progresso = progresso;
-    }
-
-    if (schede) {
-      if (!Array.isArray(schede)) {
-        return res.status(400).json({
-          error: 'Formato non valido',
-          message: 'schede deve essere un array'
-        });
-      }
-      dataToSave.schede = schede;
-    }
-
-    if (allenamenti) {
-      if (!Array.isArray(allenamenti)) {
-        return res.status(400).json({
-          error: 'Formato non valido',
-          message: 'allenamenti deve essere un array'
-        });
-      }
-      dataToSave.allenamenti = allenamenti;
-    }
-
-    await saveAllData(dataToSave);
 
     res.json({
       success: true,
       message: 'Dati salvati con successo',
       savedAt: new Date().toISOString(),
-      saved: Object.keys(dataToSave)
+      saved: savedKeys
     });
   } catch (error) {
-    console.error('Error saving data to Drive:', error);
+    console.error('Error saving data to DB:', error);
     res.status(500).json({
       error: 'Errore nel salvataggio dei dati',
       message: error.message

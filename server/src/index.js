@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
 import calendarRoutes from './routes/calendar.js';
 import driveRoutes from './routes/drive.js';
+import { initDatabase } from './utils/db.js';
 
 dotenv.config();
 
@@ -75,9 +76,19 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📅 Planning App Backend - Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 Frontend URL: ${FRONTEND_URL}`);
-});
+// Start server with database initialization
+async function start() {
+  try {
+    await initDatabase();
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📅 Planning App Backend - Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🌐 Frontend URL: ${FRONTEND_URL}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+start();

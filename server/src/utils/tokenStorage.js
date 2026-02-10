@@ -1,25 +1,16 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Path del file dove salvare i token (escluso dal git)
-const TOKENS_FILE = path.join(__dirname, '../../tokens.json');
+import pool from './db.js';
 
 /**
- * Salva i token OAuth2 su file
- * @param {Object} tokens - Token di accesso e refresh da Google
+ * Salva i token OAuth2 nel database PostgreSQL
  */
 export async function saveTokens(tokens) {
   try {
-    await fs.writeFile(
-      TOKENS_FILE,
-      JSON.stringify(tokens, null, 2),
-      'utf-8'
+    await pool.query(
+      `INSERT INTO tokens (id, data, updated_at) VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET data = $1, updated_at = NOW()`,
+      [JSON.stringify(tokens)]
     );
-    console.log('✅ Token salvati con successo');
+    console.log('✅ Token salvati nel database');
   } catch (error) {
     console.error('❌ Errore nel salvataggio dei token:', error);
     throw new Error('Impossibile salvare i token');
@@ -27,48 +18,38 @@ export async function saveTokens(tokens) {
 }
 
 /**
- * Carica i token OAuth2 dal file
- * @returns {Object|null} Token salvati o null se non esistono
+ * Carica i token OAuth2 dal database
  */
 export async function loadTokens() {
   try {
-    const data = await fs.readFile(TOKENS_FILE, 'utf-8');
-    return JSON.parse(data);
+    const result = await pool.query('SELECT data FROM tokens WHERE id = 1');
+    if (result.rows.length === 0) return null;
+    return result.rows[0].data;
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      // File non esiste, utente non ha ancora fatto login
-      return null;
-    }
     console.error('❌ Errore nel caricamento dei token:', error);
-    throw new Error('Impossibile caricare i token');
+    return null;
   }
 }
 
 /**
- * Elimina i token salvati (logout)
+ * Elimina i token (logout)
  */
 export async function deleteTokens() {
   try {
-    await fs.unlink(TOKENS_FILE);
-    console.log('✅ Token eliminati con successo');
+    await pool.query('DELETE FROM tokens WHERE id = 1');
+    console.log('✅ Token eliminati');
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      // File già non esiste
-      return;
-    }
-    console.error('❌ Errore nell\'eliminazione dei token:', error);
-    throw new Error('Impossibile eliminare i token');
+    console.error('❌ Errore eliminazione token:', error);
   }
 }
 
 /**
  * Verifica se esistono token salvati
- * @returns {boolean}
  */
 export async function hasTokens() {
   try {
-    await fs.access(TOKENS_FILE);
-    return true;
+    const result = await pool.query('SELECT 1 FROM tokens WHERE id = 1');
+    return result.rows.length > 0;
   } catch {
     return false;
   }
