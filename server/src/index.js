@@ -3,12 +3,14 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
 import calendarRoutes from './routes/calendar.js';
 import driveRoutes from './routes/drive.js';
 import { initDatabase } from './utils/db.js';
+import pool from './utils/db.js';
 
 dotenv.config();
 
@@ -19,6 +21,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+const PgSession = connectPgSimple(session);
+
 // Middleware
 app.use(cors({
   origin: FRONTEND_URL,
@@ -28,13 +32,19 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(session({
+  store: new PgSession({
+    pool,
+    tableName: 'session',
+    createTableIfMissing: false // We create it in initDatabase
+  }),
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 giorni
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    sameSite: 'lax'
   }
 }));
 
@@ -81,12 +91,12 @@ async function start() {
   try {
     await initDatabase();
     app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📅 Planning App Backend - Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🌐 Frontend URL: ${FRONTEND_URL}`);
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Planning App Backend - Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Frontend URL: ${FRONTEND_URL}`);
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 }

@@ -54,13 +54,20 @@ export async function logout() {
  * CALENDAR API
  */
 
+function toLocalDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export async function getCalendarEvents(startDate, endDate) {
   const start = startDate instanceof Date
-    ? startDate.toISOString().split('T')[0]
+    ? toLocalDateKey(startDate)
     : startDate;
 
   const end = endDate instanceof Date
-    ? endDate.toISOString().split('T')[0]
+    ? toLocalDateKey(endDate)
     : endDate;
 
   return await fetchAPI(`/api/calendar/events?start=${start}&end=${end}`);

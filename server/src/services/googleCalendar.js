@@ -1,23 +1,15 @@
 import { google } from 'googleapis';
 import { getAuthenticatedClient } from '../routes/auth.js';
 
-/**
- * Ottieni eventi dal Google Calendar
- * @param {string} timeMin - Data inizio (ISO 8601)
- * @param {string} timeMax - Data fine (ISO 8601)
- * @returns {Array} Lista eventi
- */
-export async function getCalendarEvents(timeMin, timeMax) {
+export async function getCalendarEvents(userId, timeMin, timeMax) {
   try {
-    const auth = await getAuthenticatedClient();
+    const auth = await getAuthenticatedClient(userId);
     const calendar = google.calendar({ version: 'v3', auth });
-
-    console.log(`📅 Recupero eventi dal ${timeMin} al ${timeMax}`);
 
     const response = await calendar.events.list({
       calendarId: 'primary',
-      timeMin: timeMin,
-      timeMax: timeMax,
+      timeMin,
+      timeMax,
       maxResults: 100,
       singleEvents: true,
       orderBy: 'startTime',
@@ -26,9 +18,6 @@ export async function getCalendarEvents(timeMin, timeMax) {
 
     const events = response.data.items || [];
 
-    console.log(`✅ ${events.length} eventi recuperati`);
-
-    // Trasforma gli eventi in un formato più semplice per il frontend
     return events.map(event => ({
       id: event.id,
       title: event.summary || 'Senza titolo',
@@ -40,21 +29,17 @@ export async function getCalendarEvents(timeMin, timeMax) {
         ? event.attendees.map(a => a.displayName || a.email)
         : [],
       htmlLink: event.htmlLink,
-      isAllDay: !event.start.dateTime // Se non ha dateTime, è un evento all-day
+      isAllDay: !event.start.dateTime
     }));
   } catch (error) {
-    console.error('❌ Errore nel recupero eventi:', error);
+    console.error('Error fetching calendar events:', error);
     throw new Error(`Calendar API error: ${error.message}`);
   }
 }
 
-/**
- * Ottieni lista dei calendari disponibili
- * @returns {Array} Lista calendari
- */
-export async function getCalendarList() {
+export async function getCalendarList(userId) {
   try {
-    const auth = await getAuthenticatedClient();
+    const auth = await getAuthenticatedClient(userId);
     const calendar = google.calendar({ version: 'v3', auth });
 
     const response = await calendar.calendarList.list();
@@ -68,7 +53,7 @@ export async function getCalendarList() {
       foregroundColor: cal.foregroundColor
     }));
   } catch (error) {
-    console.error('❌ Errore nel recupero lista calendari:', error);
+    console.error('Error fetching calendar list:', error);
     throw new Error(`Calendar List API error: ${error.message}`);
   }
 }

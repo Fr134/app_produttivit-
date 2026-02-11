@@ -6,6 +6,7 @@ export default function App() {
   // Auth state
   const [authenticated, setAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [user, setUser] = useState(null); // { name, email, picture }
 
   // Data state
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -55,6 +56,14 @@ export default function App() {
   const [editingProjectId, setEditingProjectId] = useState(null);
   const [editingWorkoutSheetId, setEditingWorkoutSheetId] = useState(null);
 
+  // Helper: data locale YYYY-MM-DD (evita bug mezzanotte con toISOString che usa UTC)
+  function toLocalDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   // Check authentication on mount
   useEffect(() => {
     checkAuth();
@@ -100,6 +109,7 @@ export default function App() {
     try {
       const result = await api.checkAuthStatus();
       setAuthenticated(result.authenticated);
+      if (result.user) setUser(result.user);
     } catch (error) {
       console.error('Error checking auth:', error);
       setAuthenticated(false);
@@ -334,12 +344,12 @@ export default function App() {
 
   // Time Blocks Management Functions
   function getTimeBlocksForDate(date) {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     return timeBlocks[dateKey] || [];
   }
 
   function saveTimeBlock(date, block) {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     const newBlock = {
       ...block,
       id: block.id || Date.now()
@@ -354,7 +364,7 @@ export default function App() {
   }
 
   function deleteTimeBlock(date, blockId) {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setTimeBlocks(prev => ({
       ...prev,
       [dateKey]: (prev[dateKey] || []).filter(b => b.id !== blockId)
@@ -408,7 +418,7 @@ export default function App() {
     let notes = '';
 
     if (activityType === 'task') {
-      const dateKey = selectedDate.toISOString().split('T')[0];
+      const dateKey = toLocalDateKey(selectedDate);
       const task = (dailyTasks[dateKey] || []).find(t => t.id === activityId);
       title = task ? task.text : 'Task';
     } else if (activityType === 'project') {
@@ -431,7 +441,7 @@ export default function App() {
   }
 
   function getAvailableActivityCards(date) {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     const blocks = getTimeBlocksForDate(date);
     const cards = [];
 
@@ -514,6 +524,7 @@ export default function App() {
   function handleLogout() {
     api.logout().then(() => {
       setAuthenticated(false);
+      setUser(null);
       setCalendarEvents([]);
       setDailyTasks({});
       setProjects([]);
@@ -569,7 +580,7 @@ export default function App() {
 
   const addTask = (date) => {
     if (!newTask.trim()) return;
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setDailyTasks(prev => ({
       ...prev,
       [dateKey]: [...(prev[dateKey] || []), { id: Date.now(), text: newTask, completed: false }]
@@ -578,7 +589,7 @@ export default function App() {
   };
 
   const toggleTask = (date, taskId) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setDailyTasks(prev => ({
       ...prev,
       [dateKey]: prev[dateKey].map(task =>
@@ -588,7 +599,7 @@ export default function App() {
   };
 
   const deleteTask = (date, taskId) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setDailyTasks(prev => ({
       ...prev,
       [dateKey]: (prev[dateKey] || []).filter(task => task.id !== taskId)
@@ -596,7 +607,7 @@ export default function App() {
   };
 
   const toggleReadingHabit = (date) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setHabits(prev => ({
       ...prev,
       lettura: {
@@ -610,7 +621,7 @@ export default function App() {
   };
 
   const toggleSportCompleted = (date) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setHabits(prev => ({
       ...prev,
       sportCompleted: {
@@ -737,7 +748,7 @@ export default function App() {
   };
 
   const updateProjectProgress = (projectId, date, hoursCompleted) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setProjects(prev => prev.map(project => {
       if (project.id === projectId) {
         return {
@@ -762,7 +773,7 @@ export default function App() {
     const sheets = getWorkoutSheetsForDay(date);
     if (sheets.length === 1) return sheets[0];
     if (sheets.length > 1) {
-      const dateKey = date.toISOString().split('T')[0];
+      const dateKey = toLocalDateKey(date);
       const selectedId = selectedWorkoutForDay[dateKey];
       return sheets.find(s => s.id === selectedId) || sheets[0]; // Default alla prima se non selezionata
     }
@@ -770,7 +781,7 @@ export default function App() {
   };
 
   const assignWorkoutToDay = (date, schedaId) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
     setSelectedWorkoutForDay(prev => ({
       ...prev,
       [dateKey]: parseInt(schedaId)
@@ -785,7 +796,7 @@ export default function App() {
   };
 
   const handleLogExercise = (date, schedaId, esercizioNome, campo, valore) => {
-    const dateKey = date.toISOString().split('T')[0];
+    const dateKey = toLocalDateKey(date);
 
     setWorkoutLogs(prev => {
       const currentLogs = prev[dateKey] || [];
@@ -1053,7 +1064,7 @@ export default function App() {
   }
 
   const weekDays = getWeekDays();
-  const dateKey = selectedDate.toISOString().split('T')[0];
+  const dateKey = toLocalDateKey(selectedDate);
   const tasksForDate = dailyTasks[dateKey] || [];
   const eventsForDate = getEventsForDate(selectedDate);
   const sportForDate = getSportForDay(selectedDate);
@@ -1135,6 +1146,16 @@ export default function App() {
               >
                 <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
               </button>
+              {user && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl">
+                  {user.picture && (
+                    <img src={user.picture} alt="" className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" />
+                  )}
+                  <span className="text-sm font-medium text-slate-700 hidden sm:inline" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                    {user.name}
+                  </span>
+                </div>
+              )}
               <button
                 onClick={handleLogout}
                 className="p-2 rounded-xl bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all"
@@ -1202,7 +1223,7 @@ export default function App() {
                 const events = getEventsForDate(day);
                 const sport = getSportForDay(day);
                 const isToday = isSameDay(day, new Date());
-                const dayKey = day.toISOString().split('T')[0];
+                const dayKey = toLocalDateKey(day);
                 const dayTasks = dailyTasks[dayKey] || [];
 
                 return (
@@ -2651,7 +2672,7 @@ export default function App() {
 
               {/* Unscheduled Items */}
               {(() => {
-                const dateKey = selectedDate.toISOString().split('T')[0];
+                const dateKey = toLocalDateKey(selectedDate);
                 const tasks = dailyTasks[dateKey] || [];
                 const blocks = getTimeBlocksForDate(selectedDate);
                 const scheduledTaskIds = blocks

@@ -38,7 +38,7 @@ router.get('/events', async (req, res) => {
     const timeMin = startDate.toISOString();
     const timeMax = endDate.toISOString();
 
-    const events = await getCalendarEvents(timeMin, timeMax);
+    const events = await getCalendarEvents(req.userId, timeMin, timeMax);
 
     res.json({
       success: true,
@@ -60,7 +60,7 @@ router.get('/events', async (req, res) => {
  */
 router.get('/list', async (req, res) => {
   try {
-    const calendars = await getCalendarList();
+    const calendars = await getCalendarList(req.userId);
 
     res.json({
       success: true,
