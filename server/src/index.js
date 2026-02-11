@@ -23,6 +23,12 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const PgSession = connectPgSimple(session);
 
+// Trust proxy (Railway runs behind a reverse proxy that terminates SSL)
+// Without this, Express thinks requests are HTTP and won't set secure cookies
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Middleware
 app.use(cors({
   origin: FRONTEND_URL,
