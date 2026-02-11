@@ -74,20 +74,28 @@ router.get('/google/callback', async (req, res) => {
     // Migrate old single-user data to this user (if any)
     await migrateOldDataToUser(googleId);
 
-    // Store userId in session
+    // Store userId in session and wait for it to persist before redirecting
     req.session.userId = googleId;
-
-    res.redirect(`${frontendUrl}?auth=success`);
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.redirect(`${frontendUrl}?auth=error&message=session_error`);
+      }
+      console.log(`User ${email} logged in (${googleId})`);
+      res.redirect(`${frontendUrl}?auth=success`);
+    });
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.redirect(`${frontendUrl}?auth=error&message=token_exchange_failed`);
   }
 });
 
-// GET /auth/status - Check auth status
+// GET /auth/status - Check auth status (never cache)
 router.get('/status', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
   try {
-    const userId = req.session.userId;
+    const userId = req.session?.userId;
     if (!userId) {
       return res.json({ authenticated: false });
     }
