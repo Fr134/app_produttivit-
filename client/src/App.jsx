@@ -50,6 +50,7 @@ export default function App() {
   const [validationErrors, setValidationErrors] = useState({});
   const [dragOverSlot, setDragOverSlot] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedCard, setSelectedCard] = useState(null); // tap-to-place on mobile
 
   // Edit mode state
   const [editingRoutineId, setEditingRoutineId] = useState(null);
@@ -521,6 +522,32 @@ export default function App() {
     } catch (err) {
       // invalid drag data
     }
+  }
+
+  function handleTapPlace(slotTime) {
+    if (!selectedCard) return;
+    const data = selectedCard;
+    const [startH, startM] = slotTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const durationMinutes = data.duration * 60;
+    const endMinutes = startMinutes + durationMinutes;
+    if (endMinutes > 23 * 60) return;
+    const endH = Math.floor(endMinutes / 60);
+    const endM = endMinutes % 60;
+    const endTime = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+
+    if (checkTimeOverlap(selectedDate, slotTime, endTime, null)) return;
+
+    saveTimeBlock(selectedDate, {
+      id: Date.now(),
+      startTime: slotTime,
+      endTime,
+      activityType: data.type,
+      activityId: data.id,
+      title: data.title,
+      notes: ''
+    });
+    setSelectedCard(null);
   }
 
   function handleLogout() {
@@ -1074,12 +1101,12 @@ export default function App() {
 
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-3xl shadow-2xl p-12 max-w-md w-full text-center">
-          <div className="w-20 h-20 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-3xl flex items-center justify-center shadow-lg shadow-indigo-200 mx-auto mb-6">
-            <Calendar className="w-10 h-10 text-white" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4 sm:p-6">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 sm:p-12 max-w-md w-full text-center">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-2xl sm:rounded-3xl flex items-center justify-center shadow-lg shadow-indigo-200 mx-auto mb-6">
+            <Calendar className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+          <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
             Il Mio Planner
           </h1>
           <p className="text-slate-600 mb-8" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
@@ -1124,96 +1151,66 @@ export default function App() {
   const customRoutines = getCustomRoutinesForDay(selectedDate);
   const projectsForDate = getProjectsForDate(selectedDate);
 
+  const navItems = [
+    { key: 'week', label: 'Settimana', shortLabel: 'Sett.', icon: <Calendar className="w-5 h-5" /> },
+    { key: 'day', label: 'Giorno', shortLabel: 'Giorno', icon: <CheckSquare className="w-5 h-5" /> },
+    { key: 'goals', label: 'Progetti', shortLabel: 'Progetti', icon: <Target className="w-5 h-5" /> },
+    { key: 'plan', label: 'Piano', shortLabel: 'Piano', icon: <Clock className="w-5 h-5" /> },
+    { key: 'workout', label: 'Allenamento', shortLabel: 'Gym', icon: <Dumbbell className="w-5 h-5" /> },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 pb-16 md:pb-0">
+      {/* Header - Desktop: full nav, Mobile: compact */}
       <header className="bg-white/80 backdrop-blur-lg border-b border-slate-200/50 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                <Calendar className="w-6 h-6 text-white" />
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+              <div className="w-9 h-9 sm:w-12 sm:h-12 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200 flex-shrink-0">
+                <Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent truncate" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   Il Mio Planner
                 </h1>
-                <p className="text-sm text-slate-500" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                  {lastSync ? `Ultimo salvataggio: ${lastSync.toLocaleTimeString('it-IT')}` : 'Organizza la tua settimana'}
-                  {syncing && ' - Salvataggio...'}
+                <p className="text-xs sm:text-sm text-slate-500 truncate" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                  {lastSync ? `Salvato: ${lastSync.toLocaleTimeString('it-IT')}` : 'Organizza la tua settimana'}
+                  {syncing && ' ...'}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setView('week')}
-                className={`px-4 py-2 rounded-xl font-medium transition-all ${
-                  view === 'week'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-              >
-                Settimana
-              </button>
-              <button
-                onClick={() => setView('day')}
-                className={`px-4 py-2 rounded-xl font-medium transition-all ${
-                  view === 'day'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-              >
-                Giorno
-              </button>
-              <button
-                onClick={() => setView('goals')}
-                className={`px-4 py-2 rounded-xl font-medium transition-all ${
-                  view === 'goals'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-              >
-                Progetti
-              </button>
-              <button
-                onClick={() => setView('plan')}
-                className={`px-4 py-2 rounded-xl font-medium transition-all ${
-                  view === 'plan'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-              >
-                Piano Giornata
-              </button>
-              <button
-                onClick={() => setView('workout')}
-                className={`px-4 py-2 rounded-xl font-medium transition-all ${
-                  view === 'workout'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
-              >
-                Allenamento
-              </button>
+            <div className="flex items-center gap-1 sm:gap-2">
+              {/* Desktop nav tabs */}
+              <div className="hidden md:flex items-center gap-1">
+                {navItems.map(item => (
+                  <button
+                    key={item.key}
+                    onClick={() => setView(item.key)}
+                    className={`px-3 lg:px-4 py-2 rounded-xl font-medium transition-all text-sm ${
+                      view === item.key
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                        : 'bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                    style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={saveData}
                 disabled={syncing}
                 className="p-2 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50"
                 title="Salva ora"
               >
-                <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${syncing ? 'animate-spin' : ''}`} />
               </button>
               {user && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl">
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl">
                   {user.picture && (
                     <img src={user.picture} alt="" className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" />
                   )}
-                  <span className="text-sm font-medium text-slate-700 hidden sm:inline" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                  <span className="text-sm font-medium text-slate-700 hidden lg:inline" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
                     {user.name}
                   </span>
                 </div>
@@ -1223,12 +1220,32 @@ export default function App() {
                 className="p-2 rounded-xl bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 transition-all"
                 title="Logout"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
           </div>
         </div>
       </header>
+
+      {/* Mobile bottom navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-slate-200 safe-area-bottom">
+        <div className="flex items-center justify-around px-1 py-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 8px)' }}>
+          {navItems.map(item => (
+            <button
+              key={item.key}
+              onClick={() => setView(item.key)}
+              className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all flex-1 ${
+                view === item.key
+                  ? 'text-indigo-600'
+                  : 'text-slate-400'
+              }`}
+            >
+              {item.icon}
+              <span className="text-[10px] font-semibold" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>{item.shortLabel}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
 
       {error && (
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -1241,15 +1258,15 @@ export default function App() {
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
         {/* Rest of the UI - same as original planning-app.jsx */}
         {view === 'week' && (
           <div>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                Settimana del {formatDate(weekDays[0])} - {formatDate(weekDays[6])}
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                {formatDate(weekDays[0])} - {formatDate(weekDays[6])}
               </h2>
-              <div className="flex gap-2">
+              <div className="flex gap-1 sm:gap-2">
                 <button
                   onClick={() => {
                     const newDate = new Date(currentDate);
@@ -1262,7 +1279,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setCurrentDate(new Date())}
-                  className="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm font-medium text-slate-600"
+                  className="px-3 sm:px-4 py-2 rounded-xl bg-white hover:bg-slate-50 transition-all shadow-sm font-medium text-slate-600 text-sm"
                   style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                 >
                   Oggi
@@ -1280,7 +1297,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-7 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-4">
               {weekDays.map((day, index) => {
                 const events = getEventsForDate(day);
                 const sport = getSportForDay(day);
@@ -1365,8 +1382,8 @@ export default function App() {
         {/* Vista Giorno */}
         {view === 'day' && (
           <div>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-lg sm:text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                 {formatDateFull(selectedDate)}
               </h2>
               <div className="flex gap-2">
@@ -1400,9 +1417,9 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
               {/* Sport e Routine */}
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 shadow-sm">
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-4 sm:p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-green-800 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                     <Dumbbell className="w-5 h-5" />
@@ -1523,7 +1540,7 @@ export default function App() {
               </div>
 
               {/* Eventi Google Calendar */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-sm lg:col-span-2">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-4 sm:p-6 shadow-sm lg:col-span-2">
                 <h3 className="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   <Calendar className="w-5 h-5" />
                   Eventi dal Calendario
@@ -1562,7 +1579,7 @@ export default function App() {
 
               {/* Progetti del Giorno */}
               {projectsForDate.length > 0 && (
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-6 shadow-sm lg:col-span-3">
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-4 sm:p-6 shadow-sm lg:col-span-3">
                   <h3 className="text-lg font-bold text-purple-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                     <Target className="w-5 h-5" />
                     Progetti in Corso
@@ -1576,7 +1593,7 @@ export default function App() {
                         <div key={project.id} className="bg-white rounded-xl p-4 shadow-sm">
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1">
-                              <h4 className="font-bold text-slate-800 text-lg" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                              <h4 className="font-bold text-slate-800 text-base sm:text-lg" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
                                 {project.title}
                               </h4>
                               {project.description && (
@@ -1587,13 +1604,13 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1">
+                          <div className="space-y-3">
+                            <div>
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-semibold text-purple-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                                  Ore pianificate oggi: {plannedHours}h
+                                <span className="text-xs sm:text-sm font-semibold text-purple-700" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                  Oggi: {plannedHours}h
                                 </span>
-                                <span className="text-sm text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                <span className="text-xs sm:text-sm text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
                                   {completedHours}/{plannedHours}h
                                 </span>
                               </div>
@@ -1614,7 +1631,7 @@ export default function App() {
                                       const newCompleted = hourValue === completedHours ? hourValue - 0.5 : hourValue;
                                       updateProjectProgress(project.id, selectedDate, newCompleted);
                                     }}
-                                    className={`w-10 h-10 rounded-lg text-xs font-bold transition-all ${
+                                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg text-xs font-bold transition-all ${
                                       hourValue <= completedHours
                                         ? 'bg-purple-600 text-white'
                                         : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
@@ -1635,7 +1652,7 @@ export default function App() {
               )}
 
               {/* Task del Giorno */}
-              <div className="bg-white rounded-2xl p-6 shadow-sm lg:col-span-2">
+              <div className="bg-white rounded-2xl p-4 sm:p-6 shadow-sm lg:col-span-2">
                 <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   <CheckSquare className="w-5 h-5 text-indigo-600" />
                   Task del Giorno
@@ -1683,7 +1700,7 @@ export default function App() {
                         </span>
                         <button
                           onClick={() => deleteTask(selectedDate, task.id)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600 flex-shrink-0"
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600 flex-shrink-0"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -1694,7 +1711,7 @@ export default function App() {
               </div>
 
               {/* Lettura */}
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-6 shadow-sm">
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-4 sm:p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   <Book className="w-5 h-5" />
                   Lettura Quotidiana
@@ -1720,7 +1737,7 @@ export default function App() {
               </div>
 
               {/* Time Blocking Section */}
-              <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-2xl p-6 shadow-sm lg:col-span-3">
+              <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-2xl p-3 sm:p-6 shadow-sm lg:col-span-3">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                     <Clock className="w-5 h-5" />
@@ -1756,24 +1773,29 @@ export default function App() {
                                   <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{c.label}</span>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                  {cardsOfType.map((card, idx) => (
-                                    <div
-                                      key={`${card.type}-${card.id}-${card.cardIndex || idx}`}
-                                      draggable="true"
-                                      onDragStart={(e) => {
-                                        e.dataTransfer.setData('text/plain', JSON.stringify(card));
-                                        e.dataTransfer.effectAllowed = 'move';
-                                        setTimeout(() => setIsDragging(true), 0);
-                                      }}
-                                      onDragEnd={() => { setIsDragging(false); setDragOverSlot(null); }}
-                                      className={`${c.bg} ${c.border} border rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all hover:scale-105`}
-                                    >
-                                      <div className={`text-sm font-medium ${c.text}`}>{card.title}</div>
-                                      <div className={`text-[11px] ${c.text} opacity-60`}>
-                                        {card.duration >= 1 ? `${card.duration}h` : `${card.duration * 60}min`}
+                                  {cardsOfType.map((card, idx) => {
+                                    const cardKey = `${card.type}-${card.id}-${card.cardIndex || idx}`;
+                                    const isSelected = selectedCard && `${selectedCard.type}-${selectedCard.id}-${selectedCard.cardIndex || 0}` === cardKey;
+                                    return (
+                                      <div
+                                        key={cardKey}
+                                        draggable="true"
+                                        onDragStart={(e) => {
+                                          e.dataTransfer.setData('text/plain', JSON.stringify(card));
+                                          e.dataTransfer.effectAllowed = 'move';
+                                          setTimeout(() => setIsDragging(true), 0);
+                                        }}
+                                        onDragEnd={() => { setIsDragging(false); setDragOverSlot(null); }}
+                                        onClick={() => setSelectedCard(isSelected ? null : card)}
+                                        className={`${c.bg} ${c.border} border rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all hover:scale-105 ${isSelected ? 'ring-2 ring-indigo-500 shadow-lg scale-105' : ''}`}
+                                      >
+                                        <div className={`text-sm font-medium ${c.text}`}>{card.title}</div>
+                                        <div className={`text-[11px] ${c.text} opacity-60`}>
+                                          {card.duration >= 1 ? `${card.duration}h` : `${card.duration * 60}min`}
+                                        </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </div>
                             );
@@ -1887,7 +1909,7 @@ export default function App() {
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); deleteTimeBlock(selectedDate, block.id); }}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 text-red-400 hover:text-red-600 flex-shrink-0 self-center"
+                              className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity px-1.5 text-red-400 hover:text-red-600 flex-shrink-0 self-center"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -1928,12 +1950,34 @@ export default function App() {
                           })}
                         </div>
                       )}
+
+                      {/* Tap-to-place overlay for mobile (visible when a card is selected) */}
+                      {selectedCard && !isDragging && (
+                        <div className="absolute inset-0 z-20">
+                          {Array.from({ length: 34 }, (_, i) => {
+                            const h = 6 + Math.floor(i / 2);
+                            const m = (i % 2) * 30;
+                            const slotTime = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                            return (
+                              <div
+                                key={`tap-${i}`}
+                                className="cursor-pointer hover:bg-indigo-100/40 active:bg-indigo-100/60 transition-colors"
+                                style={{ height: '40px' }}
+                                onClick={() => handleTapPlace(slotTime)}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-3 text-xs text-slate-400 italic">
-                  Trascina le attività negli slot per pianificare. Puoi spostare i blocchi già posizionati trascinandoli in un nuovo orario.
+                  {selectedCard
+                    ? 'Tocca uno slot orario per posizionare l\'attività selezionata.'
+                    : 'Tocca un\'attività e poi uno slot, oppure trascina le attività negli slot per pianificare.'
+                  }
                 </div>
               </div>
             </div>
@@ -1943,33 +1987,35 @@ export default function App() {
         {/* Vista Progetti */}
         {view === 'goals' && (
           <div>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                Progetti a Lungo Termine
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Progetti
               </h2>
               <button
                 onClick={() => setShowAddProject(true)}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2 text-sm sm:text-base"
                 style={{ fontFamily: "'Source Sans 3', sans-serif" }}
               >
-                <Plus className="w-5 h-5" />
-                Nuovo Progetto
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline">Nuovo Progetto</span>
+                <span className="sm:hidden">Nuovo</span>
               </button>
             </div>
 
             {/* Sezione Routine Personalizzate */}
-            <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm">
+            <div className="mb-6 sm:mb-8 bg-white rounded-2xl p-4 sm:p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                  Routine Personalizzate
+                <h3 className="text-lg sm:text-xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Routine
                 </h3>
                 <button
                   onClick={() => setShowAddRoutine(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all flex items-center gap-2"
+                  className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all flex items-center gap-2 text-sm sm:text-base"
                   style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                 >
-                  <Plus className="w-5 h-5" />
-                  Nuova Routine
+                  <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span className="hidden sm:inline">Nuova Routine</span>
+                  <span className="sm:hidden">Nuova</span>
                 </button>
               </div>
 
@@ -2015,18 +2061,19 @@ export default function App() {
             </div>
 
             {/* Sezione Schede di Allenamento */}
-            <div className="mb-8 bg-white rounded-2xl p-6 shadow-sm">
+            <div className="mb-6 sm:mb-8 bg-white rounded-2xl p-4 sm:p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                  Schede di Allenamento
+                <h3 className="text-lg sm:text-xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                  Schede Allenamento
                 </h3>
                 <button
                   onClick={() => setShowAddWorkoutSheet(true)}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all flex items-center gap-2"
+                  className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all flex items-center gap-2 text-sm sm:text-base"
                   style={{ fontFamily: "'Source Sans 3', sans-serif" }}
                 >
-                  <Plus className="w-5 h-5" />
-                  Nuova Scheda
+                  <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span className="hidden sm:inline">Nuova Scheda</span>
+                  <span className="sm:hidden">Nuova</span>
                 </button>
               </div>
 
@@ -2113,7 +2160,7 @@ export default function App() {
 
             {/* Form Aggiungi Scheda */}
             {showAddWorkoutSheet && (
-              <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+              <div className="mb-6 bg-white rounded-2xl p-4 sm:p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   {editingWorkoutSheetId ? 'Modifica Scheda di Allenamento' : 'Crea Nuova Scheda di Allenamento'}
                 </h3>
@@ -2207,7 +2254,7 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                       <input
                         type="text"
                         placeholder="Nome esercizio"
@@ -2299,7 +2346,7 @@ export default function App() {
 
             {/* Form Aggiungi Progetto */}
             {showAddProject && (
-              <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+              <div className="mb-6 bg-white rounded-2xl p-4 sm:p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   {editingProjectId ? 'Modifica Progetto' : 'Aggiungi Nuovo Progetto'}
                 </h3>
@@ -2352,7 +2399,7 @@ export default function App() {
                     <label className="block text-sm font-semibold text-slate-600 mb-3" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
                       Allocazione Ore Settimanali
                     </label>
-                    <div className="grid grid-cols-7 gap-2">
+                    <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
                       {['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'].map((day, index) => {
                         const allocation = newProject.timeAllocation.find(t => t.day === index);
                         const hours = allocation ? allocation.hours : 0;
@@ -2418,7 +2465,7 @@ export default function App() {
 
             {/* Form Aggiungi Routine */}
             {showAddRoutine && (
-              <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+              <div className="mb-6 bg-white rounded-2xl p-4 sm:p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-800 mb-4" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                   {editingRoutineId ? 'Modifica Routine' : 'Aggiungi Nuova Routine'}
                 </h3>
@@ -2657,25 +2704,25 @@ export default function App() {
 
         {/* Vista Piano Giornata (Read-Only) */}
         {view === 'plan' && (
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                Piano della Giornata - {formatDateFull(selectedDate)}
+          <div>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Piano - {formatDateFull(selectedDate)}
               </h2>
-              <div className="flex gap-2">
+              <div className="flex gap-1 sm:gap-2 flex-wrap">
                 <button
                   onClick={() => {
                     const newDate = new Date(selectedDate);
                     newDate.setDate(newDate.getDate() - 1);
                     setSelectedDate(newDate);
                   }}
-                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-3 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all text-sm"
                 >
-                  ← Giorno Precedente
+                  ←
                 </button>
                 <button
                   onClick={() => setSelectedDate(new Date())}
-                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-3 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all text-sm"
                 >
                   Oggi
                 </button>
@@ -2685,22 +2732,22 @@ export default function App() {
                     newDate.setDate(newDate.getDate() + 1);
                     setSelectedDate(newDate);
                   }}
-                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-3 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all text-sm"
                 >
-                  Giorno Successivo →
+                  →
                 </button>
                 <button
                   onClick={() => setView('day')}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+                  className="px-3 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-1 text-sm"
                 >
                   <Edit2 className="w-4 h-4" />
-                  Modifica
+                  <span className="hidden sm:inline">Modifica</span>
                 </button>
               </div>
             </div>
 
             {/* Timeline Read-Only */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm">
+            <div className="bg-white rounded-2xl p-4 sm:p-6 shadow-sm">
               <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2">
                 <Clock className="w-5 h-5" />
                 Timeline della Giornata
@@ -2749,17 +2796,17 @@ export default function App() {
                       return (
                         <div key={item.id} className={`${pc.bg} rounded-xl overflow-hidden flex`}>
                           <div className={`w-1.5 ${pc.accent} flex-shrink-0`} />
-                          <div className="flex-1 px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <div className={`text-sm font-semibold ${pc.sub} w-28 flex-shrink-0`}>
+                          <div className="flex-1 px-3 sm:px-4 py-2 sm:py-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3">
+                              <div className={`text-xs sm:text-sm font-semibold ${pc.sub} flex-shrink-0`}>
                                 {item.startTime} - {item.endTime}
                               </div>
-                              <div className={`font-semibold ${pc.title}`}>{item.title}</div>
+                              <div className={`font-semibold text-sm sm:text-base ${pc.title}`}>{item.title}</div>
                             </div>
-                            {item.location && <div className="text-sm text-blue-600 mt-1 ml-[7.75rem]">📍 {item.location}</div>}
-                            {item.notes && <div className="text-sm text-slate-600 mt-1 ml-[7.75rem] italic">{item.notes}</div>}
+                            {item.location && <div className="text-xs sm:text-sm text-blue-600 mt-1">📍 {item.location}</div>}
+                            {item.notes && <div className="text-xs sm:text-sm text-slate-600 mt-1 italic">{item.notes}</div>}
                             {item.exercises && (
-                              <div className="mt-2 ml-[7.75rem] space-y-1">
+                              <div className="mt-2 sm:ml-[7.75rem] space-y-1">
                                 {item.exercises.map((ex, i) => (
                                   <div key={i} className="text-sm text-rose-700 flex items-center gap-2">
                                     <span className="font-medium">{ex.nome}</span>
@@ -2798,15 +2845,15 @@ export default function App() {
                         return (
                           <div key={i} className="bg-rose-50 rounded-xl overflow-hidden flex">
                             <div className="w-1.5 bg-rose-400 flex-shrink-0" />
-                            <div className="flex-1 px-4 py-2 flex items-center justify-between">
+                            <div className="flex-1 px-3 sm:px-4 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                               <div>
-                                <span className="font-medium text-rose-900">{ex.nome}</span>
-                                <span className="text-sm text-rose-600 ml-2">
+                                <span className="font-medium text-rose-900 text-sm sm:text-base">{ex.nome}</span>
+                                <span className="text-xs sm:text-sm text-rose-600 ml-2">
                                   {ex.serie}x{ex.ripetizioni} {ex.peso && `@ ${ex.peso}kg`}
                                 </span>
                               </div>
                               {log && (
-                                <div className="text-sm text-green-700 font-medium">
+                                <div className="text-xs sm:text-sm text-green-700 font-medium">
                                   Fatto: {log.pesoEseguito}kg x {log.ripetizioniEseguite}
                                 </div>
                               )}
@@ -2852,25 +2899,25 @@ export default function App() {
         )}
         {/* Vista Allenamento */}
         {view === 'workout' && (
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-                Allenamento - {formatDateFull(selectedDate)}
+          <div>
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Allenamento
               </h2>
-              <div className="flex gap-2">
+              <div className="flex gap-1 sm:gap-2">
                 <button
                   onClick={() => {
                     const newDate = new Date(selectedDate);
                     newDate.setDate(newDate.getDate() - 1);
                     setSelectedDate(newDate);
                   }}
-                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-3 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all text-sm"
                 >
                   ←
                 </button>
                 <button
                   onClick={() => setSelectedDate(new Date())}
-                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-3 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all text-sm"
                 >
                   Oggi
                 </button>
@@ -2880,7 +2927,7 @@ export default function App() {
                     newDate.setDate(newDate.getDate() + 1);
                     setSelectedDate(newDate);
                   }}
-                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                  className="px-3 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all text-sm"
                 >
                   →
                 </button>
@@ -2937,8 +2984,8 @@ export default function App() {
                   {activeSheet && (
                     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                       {/* Header */}
-                      <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-6 py-5">
-                        <h3 className="text-xl font-bold text-white" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                      <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-4 sm:px-6 py-4 sm:py-5">
+                        <h3 className="text-lg sm:text-xl font-bold text-white" style={{ fontFamily: "'Libre Baskerville', serif" }}>
                           {activeSheet.nome}
                         </h3>
                         {activeSheet.descrizione && (
@@ -2959,52 +3006,51 @@ export default function App() {
                           const log = logs.find(l => l.schedaId === activeSheet.id && l.esercizioNome === ex.nome);
 
                           return (
-                            <div key={i} className="px-6 py-4">
-                              <div className="flex items-start justify-between gap-4">
+                            <div key={i} className="px-4 sm:px-6 py-4">
+                              <div className="space-y-3">
                                 {/* Exercise info */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="w-7 h-7 bg-rose-100 text-rose-700 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0">
-                                      {i + 1}
+                                <div className="flex items-center gap-2">
+                                  <span className="w-7 h-7 bg-rose-100 text-rose-700 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0">
+                                    {i + 1}
+                                  </span>
+                                  <h4 className="font-bold text-slate-800 text-sm sm:text-base" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                    {ex.nome}
+                                  </h4>
+                                </div>
+                                <div className="flex flex-wrap gap-2 ml-9">
+                                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-xs sm:text-sm font-medium">
+                                    {ex.serie} serie
+                                  </span>
+                                  <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-xs sm:text-sm font-medium">
+                                    {ex.ripetizioni} reps
+                                  </span>
+                                  {ex.peso > 0 && (
+                                    <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-xs sm:text-sm font-medium">
+                                      {ex.peso}kg target
                                     </span>
-                                    <h4 className="font-bold text-slate-800" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                                      {ex.nome}
-                                    </h4>
-                                  </div>
-                                  <div className="mt-2 flex flex-wrap gap-3 ml-9">
-                                    <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
-                                      {ex.serie} serie
+                                  )}
+                                  {ex.pesoTarget > 0 && (
+                                    <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-xs sm:text-sm font-medium">
+                                      {ex.pesoTarget}kg target
                                     </span>
-                                    <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
-                                      {ex.ripetizioni} reps
+                                  )}
+                                  {ex.recupero && (
+                                    <span className="inline-flex items-center px-2 py-0.5 bg-amber-50 text-amber-700 rounded-lg text-xs sm:text-sm font-medium">
+                                      {ex.recupero} recupero
                                     </span>
-                                    {ex.peso > 0 && (
-                                      <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
-                                        {ex.peso}kg target
-                                      </span>
-                                    )}
-                                    {ex.pesoTarget > 0 && (
-                                      <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
-                                        {ex.pesoTarget}kg target
-                                      </span>
-                                    )}
-                                    {ex.recupero && (
-                                      <span className="inline-flex items-center px-2.5 py-1 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium">
-                                        {ex.recupero} recupero
-                                      </span>
-                                    )}
-                                  </div>
+                                  )}
                                 </div>
 
-                                {/* Log inputs */}
-                                <div className="flex items-center gap-3 flex-shrink-0">
+                                {/* Log inputs - stacked on mobile */}
+                                <div className="flex items-center gap-3 ml-9">
                                   <div className="text-center">
                                     <input
                                       type="number"
+                                      inputMode="decimal"
                                       placeholder="—"
                                       value={log?.pesoEseguito || ''}
                                       onChange={(e) => handleLogExercise(selectedDate, activeSheet.id, ex.nome, 'pesoEseguito', e.target.value)}
-                                      className={`w-20 px-3 py-2 text-center rounded-xl border-2 font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-rose-400 ${
+                                      className={`w-16 sm:w-20 px-2 sm:px-3 py-2 text-center rounded-xl border-2 font-semibold text-sm transition-all focus:outline-none focus:ring-2 focus:ring-rose-400 ${
                                         log?.pesoEseguito
                                           ? 'border-green-400 bg-green-50 text-green-800'
                                           : 'border-slate-200 bg-white text-slate-700'
@@ -3017,10 +3063,11 @@ export default function App() {
                                   <div className="text-center">
                                     <input
                                       type="number"
+                                      inputMode="numeric"
                                       placeholder="—"
                                       value={log?.ripetizioniEseguite || ''}
                                       onChange={(e) => handleLogExercise(selectedDate, activeSheet.id, ex.nome, 'ripetizioniEseguite', e.target.value)}
-                                      className={`w-20 px-3 py-2 text-center rounded-xl border-2 font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-rose-400 ${
+                                      className={`w-16 sm:w-20 px-2 sm:px-3 py-2 text-center rounded-xl border-2 font-semibold text-sm transition-all focus:outline-none focus:ring-2 focus:ring-rose-400 ${
                                         log?.ripetizioniEseguite
                                           ? 'border-green-400 bg-green-50 text-green-800'
                                           : 'border-slate-200 bg-white text-slate-700'
@@ -3044,12 +3091,12 @@ export default function App() {
                         const total = activeSheet.esercizi.length;
 
                         return (
-                          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
-                                Progresso: {completed}/{total} esercizi compilati
+                          <div className="px-4 sm:px-6 py-4 bg-slate-50 border-t border-slate-200">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-xs sm:text-sm font-medium text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                {completed}/{total} compilati
                               </span>
-                              <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div className="w-24 sm:w-32 h-2 bg-slate-200 rounded-full overflow-hidden flex-shrink-0">
                                 <div
                                   className="h-full bg-gradient-to-r from-rose-500 to-pink-500 rounded-full transition-all"
                                   style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
@@ -3071,7 +3118,7 @@ export default function App() {
       {view !== 'week' && (
         <button
           onClick={() => setView('week')}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl hover:bg-indigo-700 transition-all hover:scale-110 flex items-center justify-center"
+          className="hidden md:flex fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl hover:bg-indigo-700 transition-all hover:scale-110 items-center justify-center"
         >
           <Calendar className="w-6 h-6" />
         </button>

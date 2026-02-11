@@ -27,3 +27,25 @@ button:hover {
 button:active {
   transform: translateY(0);
 }
+
+/* Prevent Safari zoom on input focus (requires min 16px font) */
+@media screen and (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Safe area padding for iOS notch/home indicator */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Smooth scrolling for iOS */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Disable pull-to-refresh in app mode */
+html {
+  overscroll-behavior: none;
+}
