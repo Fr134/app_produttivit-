@@ -39,7 +39,7 @@ export default function App() {
   });
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddRoutine, setShowAddRoutine] = useState(false);
-  const [newRoutine, setNewRoutine] = useState({ name: '', days: [], icon: '🏃' });
+  const [newRoutine, setNewRoutine] = useState({ name: '', days: [], icon: '🏃', startTime: '', duration: 1 });
   const [showAddWorkoutSheet, setShowAddWorkoutSheet] = useState(false);
   const [newWorkoutSheet, setNewWorkoutSheet] = useState({ nome: '', tipo: 'Palestra', descrizione: '', giorni: [], esercizi: [] });
   const [editingExercise, setEditingExercise] = useState({ nome: '', ripetizioni: '', recupero: '', pesoTarget: 0 });
@@ -462,12 +462,14 @@ export default function App() {
       }
     });
 
-    // 2. ROUTINES without fixed time (1h default)
+    // 2. ROUTINES without fixed time (draggable cards)
     const routines = getCustomRoutinesForDay(date);
     routines.forEach(routine => {
+      // Skip routines with a fixed startTime (they are auto-placed)
+      if (routine.startTime) return;
       const alreadyPlaced = blocks.some(b => b.activityType === 'routine' && String(b.activityId) === String(routine.id));
       if (!alreadyPlaced) {
-        cards.push({ type: 'routine', id: routine.id, title: `${routine.icon} ${routine.name}`, duration: 1, color: 'amber' });
+        cards.push({ type: 'routine', id: routine.id, title: `${routine.icon} ${routine.name}`, duration: routine.duration || 1, color: 'amber' });
       }
     });
 
@@ -653,7 +655,7 @@ export default function App() {
       }));
     }
 
-    setNewRoutine({ name: '', days: [], icon: '🏃' });
+    setNewRoutine({ name: '', days: [], icon: '🏃', startTime: '', duration: 1 });
     setShowAddRoutine(false);
   };
 
@@ -670,6 +672,53 @@ export default function App() {
     const dayOfWeek = date.getDay();
     return habits.customRoutines.filter(routine => routine.days.includes(dayOfWeek));
   };
+
+  // Auto-place routines with fixed startTime as time blocks
+  useEffect(() => {
+    if (!authenticated || habits.customRoutines.length === 0) return;
+
+    const dateKey = toLocalDateKey(selectedDate);
+    const dayOfWeek = selectedDate.getDay();
+    const fixedRoutines = habits.customRoutines.filter(
+      r => r.days.includes(dayOfWeek) && r.startTime
+    );
+
+    if (fixedRoutines.length === 0) return;
+
+    setTimeBlocks(prev => {
+      const existing = prev[dateKey] || [];
+      let updated = [...existing];
+      let changed = false;
+
+      fixedRoutines.forEach(routine => {
+        const alreadyExists = updated.some(
+          b => b.activityType === 'routine' && String(b.activityId) === String(routine.id)
+        );
+        if (alreadyExists) return;
+
+        const duration = routine.duration || 1;
+        const [startH, startM] = routine.startTime.split(':').map(Number);
+        const endMinutes = startH * 60 + startM + duration * 60;
+        const endH = Math.floor(endMinutes / 60);
+        const endM = endMinutes % 60;
+        const endTime = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+
+        updated.push({
+          id: `routine_${routine.id}_${dateKey}`,
+          startTime: routine.startTime,
+          endTime,
+          activityType: 'routine',
+          activityId: routine.id,
+          title: `${routine.icon} ${routine.name}`,
+          notes: ''
+        });
+        changed = true;
+      });
+
+      if (!changed) return prev;
+      return { ...prev, [dateKey]: updated };
+    });
+  }, [selectedDate, habits.customRoutines, authenticated]);
 
   const addProject = () => {
     if (!newProject.title.trim() || !newProject.startDate || !newProject.endDate) return;
@@ -902,7 +951,9 @@ export default function App() {
     setNewRoutine({
       name: routine.name,
       days: routine.days,
-      icon: routine.icon
+      icon: routine.icon,
+      startTime: routine.startTime || '',
+      duration: routine.duration || 1
     });
     setEditingRoutineId(routine.id);
     setShowAddRoutine(true);
@@ -2401,6 +2452,39 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Orario (lascia vuoto per trascinare manualmente):
+                      </label>
+                      <input
+                        type="time"
+                        value={newRoutine.startTime || ''}
+                        onChange={(e) => setNewRoutine({ ...newRoutine, startTime: e.target.value })}
+                        className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Durata (ore):
+                      </label>
+                      <select
+                        value={newRoutine.duration || 1}
+                        onChange={(e) => setNewRoutine({ ...newRoutine, duration: parseFloat(e.target.value) })}
+                        className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+                        style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                      >
+                        <option value={0.5}>30 min</option>
+                        <option value={1}>1 ora</option>
+                        <option value={1.5}>1h 30min</option>
+                        <option value={2}>2 ore</option>
+                        <option value={2.5}>2h 30min</option>
+                        <option value={3}>3 ore</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="flex gap-2">
                     <button
                       onClick={addCustomRoutine}
@@ -2413,7 +2497,7 @@ export default function App() {
                       onClick={() => {
                         setShowAddRoutine(false);
                         setEditingRoutineId(null);
-                        setNewRoutine({ name: '', days: [], icon: '🏃' });
+                        setNewRoutine({ name: '', days: [], icon: '🏃', startTime: '', duration: 1 });
                       }}
                       className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"
                       style={{ fontFamily: "'Source Sans 3', sans-serif" }}
@@ -2639,7 +2723,8 @@ export default function App() {
                   calendar: { bg: 'bg-blue-50', accent: 'bg-blue-400', title: 'text-blue-900', sub: 'text-blue-700' },
                   project: { bg: 'bg-purple-50', accent: 'bg-purple-400', title: 'text-purple-900', sub: 'text-purple-700' },
                   routine: { bg: 'bg-amber-50', accent: 'bg-amber-400', title: 'text-amber-900', sub: 'text-amber-700' },
-                  task: { bg: 'bg-emerald-50', accent: 'bg-emerald-400', title: 'text-emerald-900', sub: 'text-emerald-700' }
+                  task: { bg: 'bg-emerald-50', accent: 'bg-emerald-400', title: 'text-emerald-900', sub: 'text-emerald-700' },
+                  workout: { bg: 'bg-rose-50', accent: 'bg-rose-400', title: 'text-rose-900', sub: 'text-rose-700' }
                 };
 
                 if (allItems.length === 0) {
@@ -2662,10 +2747,63 @@ export default function App() {
                             </div>
                             {item.location && <div className="text-sm text-blue-600 mt-1 ml-[7.75rem]">📍 {item.location}</div>}
                             {item.notes && <div className="text-sm text-slate-600 mt-1 ml-[7.75rem] italic">{item.notes}</div>}
+                            {item.exercises && (
+                              <div className="mt-2 ml-[7.75rem] space-y-1">
+                                {item.exercises.map((ex, i) => (
+                                  <div key={i} className="text-sm text-rose-700 flex items-center gap-2">
+                                    <span className="font-medium">{ex.nome}</span>
+                                    <span className="text-rose-500">{ex.serie}x{ex.ripetizioni} {ex.peso && `@ ${ex.peso}kg`}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
                     })}
+                  </div>
+                );
+              })()}
+
+              {/* Workout Sheet for the day */}
+              {(() => {
+                const activeSheet = getActiveWorkoutSheet(selectedDate);
+                if (!activeSheet) return null;
+                const dateKey = toLocalDateKey(selectedDate);
+                const logs = workoutLogs[dateKey] || [];
+
+                return (
+                  <div className="mt-6 pt-6 border-t border-slate-200">
+                    <h4 className="text-base font-bold text-slate-700 mb-3 flex items-center gap-2">
+                      <Dumbbell className="w-4 h-4" />
+                      Scheda Allenamento: {activeSheet.nome}
+                    </h4>
+                    {activeSheet.descrizione && (
+                      <p className="text-sm text-slate-500 mb-3 italic">{activeSheet.descrizione}</p>
+                    )}
+                    <div className="space-y-2">
+                      {activeSheet.esercizi.map((ex, i) => {
+                        const log = logs.find(l => l.esercizioNome === ex.nome);
+                        return (
+                          <div key={i} className="bg-rose-50 rounded-xl overflow-hidden flex">
+                            <div className="w-1.5 bg-rose-400 flex-shrink-0" />
+                            <div className="flex-1 px-4 py-2 flex items-center justify-between">
+                              <div>
+                                <span className="font-medium text-rose-900">{ex.nome}</span>
+                                <span className="text-sm text-rose-600 ml-2">
+                                  {ex.serie}x{ex.ripetizioni} {ex.peso && `@ ${ex.peso}kg`}
+                                </span>
+                              </div>
+                              {log && (
+                                <div className="text-sm text-green-700 font-medium">
+                                  Fatto: {log.pesoEseguito}kg x {log.ripetizioniEseguite}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })()}
