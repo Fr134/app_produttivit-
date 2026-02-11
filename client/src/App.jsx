@@ -1190,6 +1190,17 @@ export default function App() {
                 Piano Giornata
               </button>
               <button
+                onClick={() => setView('workout')}
+                className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                  view === 'workout'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+                style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+              >
+                Allenamento
+              </button>
+              <button
                 onClick={saveData}
                 disabled={syncing}
                 className="p-2 rounded-xl bg-white text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50"
@@ -2837,6 +2848,222 @@ export default function App() {
                 );
               })()}
             </div>
+          </div>
+        )}
+        {/* Vista Allenamento */}
+        {view === 'workout' && (
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-3xl font-bold text-slate-800" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                Allenamento - {formatDateFull(selectedDate)}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(newDate.getDate() - 1);
+                    setSelectedDate(newDate);
+                  }}
+                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  ←
+                </button>
+                <button
+                  onClick={() => setSelectedDate(new Date())}
+                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  Oggi
+                </button>
+                <button
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(newDate.getDate() + 1);
+                    setSelectedDate(newDate);
+                  }}
+                  className="px-4 py-2 bg-white text-slate-600 rounded-xl hover:bg-slate-50 transition-all"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+
+            {(() => {
+              const sheets = getWorkoutSheetsForDay(selectedDate);
+              const dateKey = toLocalDateKey(selectedDate);
+              const activeSheet = getActiveWorkoutSheet(selectedDate);
+
+              if (sheets.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl p-8 shadow-sm text-center">
+                    <Dumbbell className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-500 text-lg" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Nessuna scheda di allenamento per oggi
+                    </p>
+                    <p className="text-slate-400 text-sm mt-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                      Vai su Progetti per creare una scheda e assegnarla a questo giorno
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-6">
+                  {/* Sheet selector if multiple */}
+                  {sheets.length > 1 && (
+                    <div className="bg-white rounded-2xl p-4 shadow-sm">
+                      <label className="block text-sm font-semibold text-slate-600 mb-2" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                        Seleziona scheda:
+                      </label>
+                      <div className="flex gap-2 flex-wrap">
+                        {sheets.map(sheet => (
+                          <button
+                            key={sheet.id}
+                            onClick={() => assignWorkoutToDay(selectedDate, sheet.id)}
+                            className={`px-4 py-2 rounded-xl font-medium transition-all ${
+                              activeSheet && activeSheet.id === sheet.id
+                                ? 'bg-rose-600 text-white shadow-lg shadow-rose-200'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                            style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                          >
+                            {sheet.nome}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Active workout sheet */}
+                  {activeSheet && (
+                    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                      {/* Header */}
+                      <div className="bg-gradient-to-r from-rose-600 to-pink-600 px-6 py-5">
+                        <h3 className="text-xl font-bold text-white" style={{ fontFamily: "'Libre Baskerville', serif" }}>
+                          {activeSheet.nome}
+                        </h3>
+                        {activeSheet.descrizione && (
+                          <p className="text-rose-100 text-sm mt-1" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                            {activeSheet.descrizione}
+                          </p>
+                        )}
+                        <div className="flex gap-4 mt-3">
+                          <span className="text-rose-200 text-sm">{activeSheet.tipo}</span>
+                          <span className="text-rose-200 text-sm">{activeSheet.esercizi.length} esercizi</span>
+                        </div>
+                      </div>
+
+                      {/* Exercises */}
+                      <div className="divide-y divide-slate-100">
+                        {activeSheet.esercizi.map((ex, i) => {
+                          const logs = workoutLogs[dateKey] || [];
+                          const log = logs.find(l => l.schedaId === activeSheet.id && l.esercizioNome === ex.nome);
+
+                          return (
+                            <div key={i} className="px-6 py-4">
+                              <div className="flex items-start justify-between gap-4">
+                                {/* Exercise info */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-7 h-7 bg-rose-100 text-rose-700 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0">
+                                      {i + 1}
+                                    </span>
+                                    <h4 className="font-bold text-slate-800" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                      {ex.nome}
+                                    </h4>
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-3 ml-9">
+                                    <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
+                                      {ex.serie} serie
+                                    </span>
+                                    <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
+                                      {ex.ripetizioni} reps
+                                    </span>
+                                    {ex.peso > 0 && (
+                                      <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
+                                        {ex.peso}kg target
+                                      </span>
+                                    )}
+                                    {ex.pesoTarget > 0 && (
+                                      <span className="inline-flex items-center px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">
+                                        {ex.pesoTarget}kg target
+                                      </span>
+                                    )}
+                                    {ex.recupero && (
+                                      <span className="inline-flex items-center px-2.5 py-1 bg-amber-50 text-amber-700 rounded-lg text-sm font-medium">
+                                        {ex.recupero} recupero
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Log inputs */}
+                                <div className="flex items-center gap-3 flex-shrink-0">
+                                  <div className="text-center">
+                                    <input
+                                      type="number"
+                                      placeholder="—"
+                                      value={log?.pesoEseguito || ''}
+                                      onChange={(e) => handleLogExercise(selectedDate, activeSheet.id, ex.nome, 'pesoEseguito', e.target.value)}
+                                      className={`w-20 px-3 py-2 text-center rounded-xl border-2 font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-rose-400 ${
+                                        log?.pesoEseguito
+                                          ? 'border-green-400 bg-green-50 text-green-800'
+                                          : 'border-slate-200 bg-white text-slate-700'
+                                      }`}
+                                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                                    />
+                                    <div className="text-xs text-slate-400 mt-1 font-medium">kg</div>
+                                  </div>
+                                  <span className="text-slate-300 text-lg font-bold">×</span>
+                                  <div className="text-center">
+                                    <input
+                                      type="number"
+                                      placeholder="—"
+                                      value={log?.ripetizioniEseguite || ''}
+                                      onChange={(e) => handleLogExercise(selectedDate, activeSheet.id, ex.nome, 'ripetizioniEseguite', e.target.value)}
+                                      className={`w-20 px-3 py-2 text-center rounded-xl border-2 font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-rose-400 ${
+                                        log?.ripetizioniEseguite
+                                          ? 'border-green-400 bg-green-50 text-green-800'
+                                          : 'border-slate-200 bg-white text-slate-700'
+                                      }`}
+                                      style={{ fontFamily: "'Source Sans 3', sans-serif" }}
+                                    />
+                                    <div className="text-xs text-slate-400 mt-1 font-medium">reps</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Summary footer */}
+                      {(() => {
+                        const logs = workoutLogs[dateKey] || [];
+                        const sheetLogs = logs.filter(l => l.schedaId === activeSheet.id);
+                        const completed = sheetLogs.filter(l => l.pesoEseguito > 0 || l.ripetizioniEseguite > 0).length;
+                        const total = activeSheet.esercizi.length;
+
+                        return (
+                          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium text-slate-600" style={{ fontFamily: "'Source Sans 3', sans-serif" }}>
+                                Progresso: {completed}/{total} esercizi compilati
+                              </span>
+                              <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-rose-500 to-pink-500 rounded-full transition-all"
+                                  style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </main>
